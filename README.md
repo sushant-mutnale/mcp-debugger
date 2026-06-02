@@ -1,15 +1,12 @@
-# MCP Debugger
+# mcp-debugger
 
-A CLI debugger for the Model Context Protocol (MCP).
+Transparent proxy to debug, record, and replay MCP (Model Context Protocol) sessions.
 
-## Installation
-
-```bash
-pip install -e .[dev]
-```
-
-## Running
+## Quick start
 
 ```bash
-mcp-debugger --help
+pip install mcp-debugger
+mcp-debugger proxy --server "npx -y @modelcontextprotocol/server-filesystem /tmp"
 ```
+
+See docs for full usage.
