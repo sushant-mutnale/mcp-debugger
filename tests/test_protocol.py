@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mcp_debugger.protocol.schemas import JSONRPCRequest
+from mcp_debugger.protocol.schemas import JSONRPCRequest, JSONRPCResponse
 
 
 def test_valid_request():
@@ -50,3 +50,32 @@ def test_extra_fields_forbidden():
     with pytest.raises(ValidationError) as exc_info:
         JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", extra_field="forbidden")  # type: ignore
     assert "extra_field" in str(exc_info.value)
+
+
+def test_valid_response():
+    """Verify that a valid JSON-RPC success response is parsed correctly."""
+    resp = JSONRPCResponse(jsonrpc="2.0", id=1, result="success_payload")
+    assert resp.jsonrpc == "2.0"
+    assert resp.id == 1
+    assert resp.result == "success_payload"
+
+
+def test_valid_response_with_complex_result():
+    """Verify that a response with a nested result dict is parsed correctly."""
+    resp = JSONRPCResponse(jsonrpc="2.0", id="resp-456", result={"status": "ok", "count": 42})
+    assert resp.id == "resp-456"
+    assert resp.result == {"status": "ok", "count": 42}
+
+
+def test_response_missing_result():
+    """Verify that a missing result raises validation error."""
+    with pytest.raises(ValidationError) as exc_info:
+        JSONRPCResponse(jsonrpc="2.0", id=1)  # type: ignore
+    assert "result" in str(exc_info.value)
+
+
+def test_response_extra_fields_forbidden():
+    """Verify that extra fields on response are forbidden."""
+    with pytest.raises(ValidationError) as exc_info:
+        JSONRPCResponse(jsonrpc="2.0", id=1, result="ok", extra_val="invalid")  # type: ignore
+    assert "extra_val" in str(exc_info.value)
