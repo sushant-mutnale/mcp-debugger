@@ -1,6 +1,6 @@
 """Pydantic validation schemas for the MCP protocol."""
 
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field
 
 
@@ -11,14 +11,10 @@ class JSONRPCRequest(BaseModel):
         "extra": "forbid",
     }
 
-    jsonrpc: Literal["2.0"] = Field(
-        default="2.0", description="Must be exactly '2.0'"
-    )
-    id: Union[int, str] = Field(
-        ..., description="Request ID used to match request-response pairs"
-    )
+    jsonrpc: Literal["2.0"] = Field(default="2.0", description="Must be exactly '2.0'")
+    id: Union[int, str] = Field(..., description="Request ID used to match request-response pairs")
     method: str = Field(..., min_length=1, description="The MCP method being called")
-    params: Optional[Dict[str, Union[str, int, float, bool, None, list, dict]]] = Field(
+    params: Optional[Union[Dict[str, Any], List[Any]]] = Field(
         default=None, description="Optional arguments associated with the method"
     )
 
@@ -30,12 +26,8 @@ class JSONRPCResponse(BaseModel):
         "extra": "forbid",
     }
 
-    jsonrpc: Literal["2.0"] = Field(
-        default="2.0", description="Must be exactly '2.0'"
-    )
-    id: Union[int, str] = Field(
-        ..., description="Must match the id of the original request"
-    )
+    jsonrpc: Literal["2.0"] = Field(default="2.0", description="Must be exactly '2.0'")
+    id: Union[int, str] = Field(..., description="Must match the id of the original request")
     result: Any = Field(..., description="The payload returned by the server on success")
 
 
@@ -58,10 +50,22 @@ class JSONRPCErrorResponse(BaseModel):
         "extra": "forbid",
     }
 
-    jsonrpc: Literal["2.0"] = Field(
-        default="2.0", description="Must be exactly '2.0'"
-    )
+    jsonrpc: Literal["2.0"] = Field(default="2.0", description="Must be exactly '2.0'")
     id: Optional[Union[int, str]] = Field(
         ..., description="Must match the id of the original request or be null/None"
     )
     error: ErrorDetails = Field(..., description="The structured error details")
+
+
+class JSONRPCNotification(BaseModel):
+    """Represents a JSON-RPC 2.0 Notification message."""
+
+    model_config = {
+        "extra": "forbid",
+    }
+
+    jsonrpc: Literal["2.0"] = Field(default="2.0", description="Must be exactly '2.0'")
+    method: str = Field(..., min_length=1, description="The notification method name")
+    params: Optional[Union[Dict[str, Any], List[Any]]] = Field(
+        default=None, description="Optional arguments associated with the notification"
+    )
