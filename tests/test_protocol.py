@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mcp_debugger.protocol.schemas import JSONRPCRequest, JSONRPCResponse
+from mcp_debugger.protocol.schemas import JSONRPCRequest, JSONRPCResponse, JSONRPCErrorResponse, ErrorDetails
 
 
 def test_valid_request():
@@ -79,3 +79,36 @@ def test_response_extra_fields_forbidden():
     with pytest.raises(ValidationError) as exc_info:
         JSONRPCResponse(jsonrpc="2.0", id=1, result="ok", extra_val="invalid")  # type: ignore
     assert "extra_val" in str(exc_info.value)
+
+
+def test_valid_error_response():
+    """Verify that a valid JSON-RPC error response is parsed correctly."""
+    err = ErrorDetails(code=-32601, message="Method not found", data={"trace": "some-trace"})
+    resp = JSONRPCErrorResponse(jsonrpc="2.0", id=1, error=err)
+    assert resp.jsonrpc == "2.0"
+    assert resp.id == 1
+    assert resp.error.code == -32601
+    assert resp.error.message == "Method not found"
+    assert resp.error.data == {"trace": "some-trace"}
+
+
+def test_valid_error_response_with_null_id():
+    """Verify that an error response with a null/None id is allowed (e.g. parse error)."""
+    err = ErrorDetails(code=-32700, message="Parse error")
+    resp = JSONRPCErrorResponse(jsonrpc="2.0", id=None, error=err)
+    assert resp.id is None
+    assert resp.error.code == -32700
+
+
+def test_error_missing_details():
+    """Verify that a missing error field raises validation error."""
+    with pytest.raises(ValidationError) as exc_info:
+        JSONRPCErrorResponse(jsonrpc="2.0", id=1)  # type: ignore
+    assert "error" in str(exc_info.value)
+
+
+def test_error_invalid_code_type():
+    """Verify that a non-integer error code raises validation error."""
+    with pytest.raises(ValidationError) as exc_info:
+        ErrorDetails(code="not-int", message="Error")  # type: ignore
+    assert "code" in str(exc_info.value)
