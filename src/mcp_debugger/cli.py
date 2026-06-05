@@ -40,10 +40,13 @@ def version() -> None:
 
 @app.command(name="proxy")
 def proxy(
-    server: str = typer.Option(..., "--server", "-s", help="The command to launch the target MCP server"),
+    server: str = typer.Option(
+        ..., "--server", "-s", help="The command to launch the target MCP server"
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug logging"),
 ) -> None:
     """Launch the transparent stdio proxy and log session traffic to SQLite."""
+
     async def _run() -> None:
         db = Database()
         await db.connect()

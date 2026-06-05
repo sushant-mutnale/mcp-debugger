@@ -165,7 +165,9 @@ def test_parse_jsonrpc_message() -> None:
     assert resp.result == "ok"
 
     # 3. Error Response
-    err = parse_jsonrpc_message({"jsonrpc": "2.0", "id": 1, "error": {"code": -123, "message": "fail"}})
+    err = parse_jsonrpc_message(
+        {"jsonrpc": "2.0", "id": 1, "error": {"code": -123, "message": "fail"}}
+    )
     assert isinstance(err, JSONRPCErrorResponse)
     assert err.id == 1
     assert err.error.code == -123
@@ -184,6 +186,7 @@ def test_parse_jsonrpc_message() -> None:
         parse_jsonrpc_message({"jsonrpc": "2.0", "id": 1})
 
     # 7. Neither request, response, nor notification
-    with pytest.raises(ValueError, match="Message is neither a request, response, nor notification"):
+    with pytest.raises(
+        ValueError, match="Message is neither a request, response, nor notification"
+    ):
         parse_jsonrpc_message({"jsonrpc": "2.0"})
-

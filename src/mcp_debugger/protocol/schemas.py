@@ -72,7 +72,7 @@ class JSONRPCNotification(BaseModel):
 
 
 def parse_jsonrpc_message(
-    data: Dict[str, Any]
+    data: Dict[str, Any],
 ) -> Union[JSONRPCRequest, JSONRPCResponse, JSONRPCErrorResponse, JSONRPCNotification]:
     """Parse a dictionary payload into one of the four base JSON-RPC 2.0 messages."""
     if "jsonrpc" not in data or data["jsonrpc"] != "2.0":
