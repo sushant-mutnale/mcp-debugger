@@ -9,6 +9,7 @@ from mcp_debugger.protocol.schemas import (
     JSONRPCErrorResponse,
     ErrorDetails,
     JSONRPCNotification,
+    parse_jsonrpc_message,
 )
 
 
@@ -147,3 +148,42 @@ def test_notification_empty_method() -> None:
     with pytest.raises(ValidationError) as exc_info:
         JSONRPCNotification(jsonrpc="2.0", method="")
     assert "method" in str(exc_info.value)
+
+
+def test_parse_jsonrpc_message() -> None:
+    """Verify that parse_jsonrpc_message correctly parses different JSON-RPC payloads."""
+    # 1. Request
+    req = parse_jsonrpc_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    assert isinstance(req, JSONRPCRequest)
+    assert req.id == 1
+    assert req.method == "tools/list"
+
+    # 2. Response
+    resp = parse_jsonrpc_message({"jsonrpc": "2.0", "id": 1, "result": "ok"})
+    assert isinstance(resp, JSONRPCResponse)
+    assert resp.id == 1
+    assert resp.result == "ok"
+
+    # 3. Error Response
+    err = parse_jsonrpc_message({"jsonrpc": "2.0", "id": 1, "error": {"code": -123, "message": "fail"}})
+    assert isinstance(err, JSONRPCErrorResponse)
+    assert err.id == 1
+    assert err.error.code == -123
+
+    # 4. Notification
+    notif = parse_jsonrpc_message({"jsonrpc": "2.0", "method": "notify"})
+    assert isinstance(notif, JSONRPCNotification)
+    assert notif.method == "notify"
+
+    # 5. Invalid version
+    with pytest.raises(ValueError, match="Invalid JSON-RPC version"):
+        parse_jsonrpc_message({"jsonrpc": "1.0", "id": 1, "method": "test"})
+
+    # 6. Response missing both result and error
+    with pytest.raises(ValueError, match="Response must contain either 'result' or 'error'"):
+        parse_jsonrpc_message({"jsonrpc": "2.0", "id": 1})
+
+    # 7. Neither request, response, nor notification
+    with pytest.raises(ValueError, match="Message is neither a request, response, nor notification"):
+        parse_jsonrpc_message({"jsonrpc": "2.0"})
+

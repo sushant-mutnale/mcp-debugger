@@ -69,3 +69,24 @@ class JSONRPCNotification(BaseModel):
     params: Optional[Union[Dict[str, Any], List[Any]]] = Field(
         default=None, description="Optional arguments associated with the notification"
     )
+
+
+def parse_jsonrpc_message(
+    data: Dict[str, Any]
+) -> Union[JSONRPCRequest, JSONRPCResponse, JSONRPCErrorResponse, JSONRPCNotification]:
+    """Parse a dictionary payload into one of the four base JSON-RPC 2.0 messages."""
+    if "jsonrpc" not in data or data["jsonrpc"] != "2.0":
+        raise ValueError("Invalid JSON-RPC version. Must be '2.0'")
+
+    if "method" in data:
+        if "id" in data:
+            return JSONRPCRequest.model_validate(data)
+        return JSONRPCNotification.model_validate(data)
+    elif "id" in data:
+        if "error" in data:
+            return JSONRPCErrorResponse.model_validate(data)
+        elif "result" in data:
+            return JSONRPCResponse.model_validate(data)
+        raise ValueError("Response must contain either 'result' or 'error'")
+    else:
+        raise ValueError("Message is neither a request, response, nor notification")
