@@ -351,3 +351,101 @@ async def test_database_exceptions(temp_db: Database) -> None:
     assert await temp_db.get_messages(1) == []
     assert await temp_db.get_tools(1) == []
     assert await temp_db.get_errors(1) == []
+
+
+async def test_schema_migration_friendly_name() -> None:
+    """Verify that old schemas are automatically migrated to add the friendly_name column."""
+    import aiosqlite
+
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+
+    # Initialize a database with the old schema (no friendly_name)
+    async with aiosqlite.connect(path) as conn:
+        await conn.execute(
+            """
+            CREATE TABLE sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_uuid TEXT UNIQUE NOT NULL,
+                server_command TEXT NOT NULL,
+                server_name TEXT,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ended_at TIMESTAMP,
+                status TEXT DEFAULT 'running',
+                client_info TEXT,
+                server_info TEXT,
+                protocol_version TEXT,
+                total_messages INTEGER DEFAULT 0,
+                total_tools_discovered INTEGER DEFAULT 0,
+                total_errors INTEGER DEFAULT 0
+            );
+            """
+        )
+        # Add a dummy session
+        await conn.execute(
+            "INSERT INTO sessions (session_uuid, server_command) VALUES ('uuid-123', 'old-command')"
+        )
+        await conn.commit()
+
+    # Now open with Database manager
+    db = Database(db_path=path)
+    await db.connect()
+
+    # Verify column exists and has been migrated
+    session = await db.get_session(1)
+    assert session is not None
+    assert "friendly_name" in session
+    assert session["friendly_name"] is None
+
+    # Verify we can write to it
+    new_session_id = await db.create_session(
+        server_command="new-command", friendly_name="my-friendly-name"
+    )
+    assert new_session_id > 0
+    new_session = await db.get_session(new_session_id)
+    assert new_session is not None
+    assert new_session["friendly_name"] == "my-friendly-name"
+
+    await db.close()
+    try:
+        os.remove(path)
+    except Exception:
+        pass
+
+
+async def test_get_sessions_list(temp_db: Database) -> None:
+    """Verify get_sessions functionality, ordering, limits, and status filtering."""
+    # Create 3 sessions
+    s1 = await temp_db.create_session("server-1", friendly_name="name-1")
+    s2 = await temp_db.create_session("server-2", friendly_name="name-2")
+    s3 = await temp_db.create_session("server-3", friendly_name="name-3")
+
+    await temp_db.close_session(s1, "completed")
+    await temp_db.close_session(s2, "error")
+    # s3 remains running
+
+    # Test reverse chronological order (s3 is newest)
+    sessions = await temp_db.get_sessions(limit=10)
+    assert len(sessions) == 3
+    assert sessions[0]["id"] == s3
+    assert sessions[0]["friendly_name"] == "name-3"
+    assert sessions[0]["status"] == "running"
+    assert sessions[1]["id"] == s2
+    assert sessions[2]["id"] == s1
+
+    # Test limit
+    limited_sessions = await temp_db.get_sessions(limit=2)
+    assert len(limited_sessions) == 2
+    assert limited_sessions[0]["id"] == s3
+
+    # Test status filter
+    completed_sessions = await temp_db.get_sessions(status_filter="completed")
+    assert len(completed_sessions) == 1
+    assert completed_sessions[0]["id"] == s1
+
+    error_sessions = await temp_db.get_sessions(status_filter="error")
+    assert len(error_sessions) == 1
+    assert error_sessions[0]["id"] == s2
+
+    # Verify duration calculations
+    assert sessions[0]["duration_seconds"] >= 0

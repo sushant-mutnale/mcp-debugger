@@ -78,6 +78,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_uuid TEXT UNIQUE NOT NULL,
+                friendly_name TEXT,
                 server_command TEXT NOT NULL,
                 server_name TEXT,
                 started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -92,6 +93,13 @@ class Database:
             );
             """
         )
+
+        # Migrate existing schemas: check if friendly_name column exists
+        async with conn.execute("PRAGMA table_info(sessions);") as cursor:
+            columns = [row[1] for row in await cursor.fetchall()]
+        if columns and "friendly_name" not in columns:
+            await conn.execute("ALTER TABLE sessions ADD COLUMN friendly_name TEXT;")
+            await conn.commit()
 
         # Table: messages
         await conn.execute(
@@ -164,6 +172,7 @@ class Database:
         server_command: str,
         client_info: Optional[str] = None,
         server_name: Optional[str] = None,
+        friendly_name: Optional[str] = None,
     ) -> int:
         """Create a new debugging session record, returning its integer ID."""
         try:
@@ -171,10 +180,10 @@ class Database:
             session_uuid = str(uuid.uuid4())
             async with conn.execute(
                 """
-                INSERT INTO sessions (session_uuid, server_command, server_name, client_info, status)
-                VALUES (?, ?, ?, ?, 'running')
+                INSERT INTO sessions (session_uuid, friendly_name, server_command, server_name, client_info, status)
+                VALUES (?, ?, ?, ?, ?, 'running')
                 """,
-                (session_uuid, server_command, server_name, client_info),
+                (session_uuid, friendly_name, server_command, server_name, client_info),
             ) as cursor:
                 session_id = cursor.lastrowid
             await conn.commit()
@@ -433,4 +442,43 @@ class Database:
                 return [dict(row) for row in rows]
         except Exception as e:
             logger.warning("Failed to get errors: %s", e)
+            return []
+
+    async def get_sessions(
+        self,
+        limit: int = 20,
+        status_filter: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve historical debugging sessions in reverse chronological order."""
+        try:
+            conn = await self._get_conn()
+            query = """
+                SELECT 
+                    id,
+                    session_uuid,
+                    friendly_name,
+                    server_command,
+                    server_name,
+                    started_at,
+                    ended_at,
+                    status,
+                    total_messages,
+                    total_tools_discovered,
+                    total_errors,
+                    (CAST(strftime('%s', COALESCE(ended_at, CURRENT_TIMESTAMP)) AS INTEGER) - CAST(strftime('%s', started_at) AS INTEGER)) AS duration_seconds
+                FROM sessions
+            """
+            params: List[Any] = []
+            if status_filter is not None:
+                query += " WHERE status = ?"
+                params.append(status_filter)
+
+            query += " ORDER BY started_at DESC, id DESC LIMIT ?"
+            params.append(limit)
+
+            async with conn.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.warning("Failed to get sessions: %s", e)
             return []
