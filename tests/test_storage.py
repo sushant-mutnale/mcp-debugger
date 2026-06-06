@@ -264,6 +264,63 @@ async def test_get_messages_filters(temp_db: Database) -> None:
     assert len(res) == 2
 
 
+async def test_get_messages_search_and_offset(temp_db: Database) -> None:
+    """Verify filtering messages by search text and offset/pagination."""
+    session_id = await temp_db.create_session(server_command="dummy")
+
+    # Log messages with different JSON fields
+    await temp_db.log_message(
+        session_id,
+        "client_to_server",
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "test_tool", "value": "apple"},
+        },
+    )
+    await temp_db.log_message(
+        session_id,
+        "server_to_client",
+        {"jsonrpc": "2.0", "id": 1, "result": {"data": "banana cherry"}},
+    )
+    await temp_db.log_message(
+        session_id,
+        "server_to_client",
+        {"jsonrpc": "2.0", "id": 2, "error": {"code": -32000, "message": "durian error"}},
+    )
+
+    # 1. Search in params
+    res = await temp_db.get_messages(session_id, search="apple")
+    assert len(res) == 1
+    assert res[0]["method"] == "tools/call"
+
+    # 2. Search in result
+    res = await temp_db.get_messages(session_id, search="banana")
+    assert len(res) == 1
+    assert "cherry" in res[0]["result"]
+
+    # 3. Search in error
+    res = await temp_db.get_messages(session_id, search="durian")
+    assert len(res) == 1
+    assert "durian" in res[0]["error"]
+
+    # 4. Search no match
+    res = await temp_db.get_messages(session_id, search="grape")
+    assert len(res) == 0
+
+    # 5. Offset only
+    res = await temp_db.get_messages(session_id, offset=1)
+    assert len(res) == 2
+    assert res[0]["id"] == 2  # second message
+    assert res[1]["id"] == 3  # third message
+
+    # 6. Limit and offset
+    res = await temp_db.get_messages(session_id, limit=1, offset=1)
+    assert len(res) == 1
+    assert res[0]["id"] == 2
+
+
 async def test_robust_error_handling(temp_db: Database) -> None:
     """Verify that constraints violations or invalid database handles do not crash code."""
     # Attempt message insertion into non-existent session_id (violating foreign key constraint)

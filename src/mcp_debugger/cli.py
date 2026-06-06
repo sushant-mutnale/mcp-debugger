@@ -5,12 +5,13 @@ from datetime import datetime, timezone
 import json
 import sqlite3
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 import aiosqlite
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
@@ -218,6 +219,235 @@ def list_sessions(
                     get_status_text(s["status"]),
                 )
             console.print(table)
+
+        await db.close()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
+@app.command(name="inspect")
+def inspect(
+    session_id: int = typer.Argument(..., help="The ID of the session to inspect"),
+    method: Optional[str] = typer.Option(
+        None,
+        "--method",
+        help="Filter messages by method name (case-sensitive)",
+    ),
+    direction: Optional[str] = typer.Option(
+        None,
+        "--direction",
+        help="Filter messages by direction (client_to_server, server_to_client)",
+    ),
+    search: Optional[str] = typer.Option(
+        None,
+        "--search",
+        help="Substring search in the JSON body (raw text)",
+    ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit",
+        help="Maximum number of messages to show",
+    ),
+    offset: Optional[int] = typer.Option(
+        None,
+        "--offset",
+        help="Skip the first N messages",
+    ),
+    json_mode: bool = typer.Option(
+        False,
+        "--json",
+        help="Output raw JSON instead of Rich terminal format",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write output to a file instead of stdout",
+    ),
+) -> None:
+    """Inspect and format captured messages from a specific session."""
+
+    def rebuild_jsonrpc(row: dict[str, Any]) -> dict[str, Any]:
+        msg: dict[str, Any] = {"jsonrpc": "2.0"}
+        if row.get("message_id") is not None:
+            raw_id = row["message_id"]
+            try:
+                msg["id"] = int(raw_id)
+            except ValueError:
+                msg["id"] = raw_id
+
+        if row.get("method") is not None and row.get("message_type") in ("request", "notification"):
+            msg["method"] = row["method"]
+
+        for field in ("params", "result", "error"):
+            val = row.get(field)
+            if val is not None:
+                try:
+                    msg[field] = json.loads(val)
+                except Exception:
+                    msg[field] = val
+        return msg
+
+    async def _run() -> None:
+        db = Database()
+        try:
+            await db.connect()
+            session = await db.get_session(session_id)
+        except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
+            console.print(
+                f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
+            )
+            console.print(
+                "[yellow]Recovery Suggestion: Try deleting or renaming the file to reset the database.[/yellow]"
+            )
+            sys.exit(1)
+        except Exception as e:
+            console.print(f"[red]Error connecting to database: {e}[/red]")
+            sys.exit(1)
+
+        if not session:
+            console.print(f"Session {session_id} not found")
+            await db.close()
+            sys.exit(1)
+
+        try:
+            messages = await db.get_messages(
+                session_id=session_id,
+                method=method,
+                direction=direction,
+                search=search,
+                limit=limit,
+                offset=offset,
+            )
+        except Exception as e:
+            console.print(f"[red]Error fetching messages: {e}[/red]")
+            await db.close()
+            sys.exit(1)
+
+        if not messages:
+            if json_mode:
+                output_str = "[]"
+                if output:
+                    with open(output, "w", encoding="utf-8") as f:
+                        f.write(output_str + "\n")
+                else:
+                    print(output_str)
+            else:
+                if output:
+                    with open(output, "w", encoding="utf-8") as f:
+                        f.write("No messages\n")
+                else:
+                    console.print("No messages")
+            await db.close()
+            return
+
+        if json_mode:
+            json_messages = []
+            for msg in messages:
+                params_val = None
+                if msg.get("params") is not None:
+                    try:
+                        params_val = json.loads(msg["params"])
+                    except Exception:
+                        params_val = msg["params"]
+
+                result_val = None
+                if msg.get("result") is not None:
+                    try:
+                        result_val = json.loads(msg["result"])
+                    except Exception:
+                        result_val = msg["result"]
+
+                error_val = None
+                if msg.get("error") is not None:
+                    try:
+                        error_val = json.loads(msg["error"])
+                    except Exception:
+                        error_val = msg["error"]
+
+                timestamp_sec = msg["timestamp"] / 1000.0 if msg.get("timestamp") else None
+
+                json_messages.append(
+                    {
+                        "id": msg["id"],
+                        "direction": msg["direction"],
+                        "method": msg["method"],
+                        "timestamp": timestamp_sec,
+                        "latency_ms": msg["latency_ms"],
+                        "params": params_val,
+                        "result": result_val,
+                        "error": error_val,
+                    }
+                )
+            output_str = json.dumps(json_messages, indent=2)
+            if output:
+                with open(output, "w", encoding="utf-8") as f:
+                    f.write(output_str + "\n")
+            else:
+                print(output_str)
+        else:
+            panels = []
+            for msg in messages:
+                envelope = rebuild_jsonrpc(msg)
+                json_body = json.dumps(envelope, indent=2)
+                syntax_body = Syntax(json_body, "json")
+
+                time_str = "unknown"
+                if msg.get("timestamp") is not None:
+                    try:
+                        dt = datetime.fromtimestamp(msg["timestamp"] / 1000.0)
+                        time_str = dt.strftime("%H:%M:%S.%f")[:-3]
+                    except Exception:
+                        time_str = str(msg["timestamp"])
+
+                direction_str = msg.get("direction")
+                is_error = msg.get("error") is not None
+
+                header = Text()
+                if direction_str == "client_to_server":
+                    header.append("➜ ", style="blue bold")
+                    header.append("client → server", style="blue")
+                    border_style = "blue"
+                else:
+                    if is_error:
+                        header.append("◀ ", style="red bold")
+                        header.append("server → client", style="red")
+                        border_style = "red"
+                    else:
+                        header.append("◀ ", style="green bold")
+                        header.append("server → client", style="green")
+                        border_style = "green"
+
+                header.append(" | method: ", style="white")
+                header.append(msg.get("method") or "unknown", style="yellow bold")
+                header.append(" | ", style="white")
+                header.append(time_str, style="grey50")
+
+                if msg.get("message_type") == "response" and msg.get("latency_ms") is not None:
+                    latency = msg["latency_ms"]
+                    header.append(" | ", style="white")
+                    header.append(f"+{latency:.0f}ms", style="magenta bold")
+
+                panel = Panel(
+                    syntax_body,
+                    title=header,
+                    title_align="left",
+                    border_style=border_style,
+                    safe_box=True,
+                )
+                panels.append(panel)
+
+            if output:
+                with open(output, "w", encoding="utf-8") as f:
+                    file_console = Console(file=f, force_terminal=False, color_system=None)
+                    for panel in panels:
+                        file_console.print(panel)
+            else:
+                for panel in panels:
+                    console.print(panel)
 
         await db.close()
 

@@ -387,9 +387,11 @@ class Database:
         session_id: int,
         method: Optional[str] = None,
         direction: Optional[str] = None,
+        search: Optional[str] = None,
         limit: Optional[int] = None,
+        offset: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """Query and return logged messages, optionally filtering by method and direction."""
+        """Query and return logged messages, optionally filtering by method, direction, and text search."""
         try:
             conn = await self._get_conn()
             query = "SELECT * FROM messages WHERE session_id = ?"
@@ -403,11 +405,23 @@ class Database:
                 query += " AND direction = ?"
                 params.append(direction)
 
+            if search is not None:
+                query += " AND (params LIKE ? OR result LIKE ? OR error LIKE ?)"
+                search_pat = f"%{search}%"
+                params.extend([search_pat, search_pat, search_pat])
+
             query += " ORDER BY timestamp ASC"
 
             if limit is not None:
                 query += " LIMIT ?"
                 params.append(limit)
+            elif offset is not None:
+                # SQLite requires LIMIT to be present if OFFSET is specified
+                query += " LIMIT -1"
+
+            if offset is not None:
+                query += " OFFSET ?"
+                params.append(offset)
 
             async with conn.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
