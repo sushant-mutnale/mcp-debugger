@@ -11,6 +11,7 @@ from mcp_debugger.protocol.schemas import (
     JSONRPCNotification,
     parse_jsonrpc_message,
 )
+from mcp_debugger.protocol.validator import ProtocolValidator
 
 
 def test_valid_request() -> None:
@@ -190,3 +191,225 @@ def test_parse_jsonrpc_message() -> None:
         ValueError, match="Message is neither a request, response, nor notification"
     ):
         parse_jsonrpc_message({"jsonrpc": "2.0"})
+
+
+def test_validator_message_jsonrpc_version() -> None:
+    """Verify that validator flags invalid JSON-RPC version."""
+    validator = ProtocolValidator()
+    res = validator.validate_message(
+        {"jsonrpc": "1.0", "id": 1, "method": "tools/list"}, "client_to_server"
+    )
+    assert len(res) == 1
+    assert not res[0].passed
+    assert res[0].severity == "critical"
+    assert res[0].rule_name == "jsonrpc_version"
+
+
+def test_validator_message_missing_id() -> None:
+    """Verify that validator flags requests/responses that lack envelope structure."""
+    validator = ProtocolValidator()
+    res = validator.validate_message({"jsonrpc": "2.0"}, "client_to_server")
+    assert len(res) == 1
+    assert not res[0].passed
+    assert res[0].severity == "critical"
+    assert res[0].rule_name == "envelope_type"
+
+
+def test_validator_message_valid_request() -> None:
+    """Verify that validator accepts a valid request envelope."""
+    validator = ProtocolValidator()
+    res = validator.validate_message(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, "client_to_server"
+    )
+    assert len(res) == 1
+    assert res[0].passed
+    assert res[0].rule_name == "message_compliance"
+
+
+def test_validator_message_unknown_method() -> None:
+    """Verify that validator warns on unrecognized method names under permissive mode."""
+    validator = ProtocolValidator()
+    res = validator.validate_message(
+        {"jsonrpc": "2.0", "id": 1, "method": "custom/extension"}, "client_to_server"
+    )
+    assert len(res) == 1
+    assert not res[0].passed
+    assert res[0].severity == "warning"
+    assert res[0].rule_name == "method_name"
+    assert "not recognized" in res[0].message
+
+
+def test_validator_message_typo_correction() -> None:
+    """Verify that validator suggests corrections for common spelling errors in method names."""
+    validator = ProtocolValidator()
+    res = validator.validate_message(
+        {"jsonrpc": "2.0", "id": 1, "method": "tool/list"}, "client_to_server"
+    )
+    assert len(res) == 1
+    assert not res[0].passed
+    assert res[0].severity == "warning"
+    assert res[0].rule_name == "method_name"
+    assert res[0].suggestion == "Did you mean 'tools/list'?"
+
+
+def test_validator_message_tool_schema_validation() -> None:
+    """Verify that validator evaluates tool inputSchema definitions correctly."""
+    validator = ProtocolValidator()
+
+    # 1. Valid tool schema
+    valid_resp = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "tools": [
+                {
+                    "name": "my_tool",
+                    "description": "desc",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"param1": {"type": "string"}},
+                    },
+                }
+            ]
+        },
+    }
+    res = validator.validate_message(valid_resp, "server_to_client")
+    assert len(res) == 1
+    assert res[0].passed
+    assert res[0].rule_name == "message_compliance"
+
+    # 2. Invalid tool schema (e.g. invalid type representation in JSON Schema)
+    invalid_resp = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "tools": [
+                {
+                    "name": "my_tool",
+                    "description": "desc",
+                    "inputSchema": {
+                        "type": ["invalid_type_array"]  # Invalid schema type array configuration
+                    },
+                }
+            ]
+        },
+    }
+    res2 = validator.validate_message(invalid_resp, "server_to_client")
+    assert len(res2) >= 1
+    assert any(not r.passed and r.rule_name == "tool_schema_validity" for r in res2)
+
+
+@pytest.mark.asyncio
+async def test_validator_session_handshake_order() -> None:
+    """Verify that session handshake sequence rules are correctly checked."""
+    from unittest.mock import AsyncMock
+    from mcp_debugger.storage.database import Database
+
+    validator = ProtocolValidator()
+    db = AsyncMock(spec=Database)
+    db.get_session.return_value = {"id": 1, "status": "running"}
+
+    # 1. Out of order handshake (tools/list called first)
+    db.get_messages.return_value = [
+        {
+            "message_id": "1",
+            "direction": "client_to_server",
+            "message_type": "request",
+            "method": "tools/list",
+            "params": None,
+            "result": None,
+            "error": None,
+        }
+    ]
+    res = await validator.validate_session(1, db)
+    assert any(not r.passed and r.rule_name == "initialize_first" for r in res)
+
+    # 2. Correct handshake sequence
+    db.get_messages.return_value = [
+        {
+            "message_id": "1",
+            "direction": "client_to_server",
+            "message_type": "request",
+            "method": "initialize",
+            "params": '{"protocolVersion":"2025-03-26"}',
+            "result": None,
+            "error": None,
+        },
+        {
+            "message_id": "1",
+            "direction": "server_to_client",
+            "message_type": "response",
+            "method": "initialize",
+            "params": None,
+            "result": '{"protocolVersion":"2025-03-26", "capabilities": {}}',
+            "error": None,
+        },
+        {
+            "message_id": None,
+            "direction": "client_to_server",
+            "message_type": "notification",
+            "method": "notifications/initialized",
+            "params": None,
+            "result": None,
+            "error": None,
+        },
+    ]
+    res2 = await validator.validate_session(1, db)
+    assert len(res2) == 1
+    assert res2[0].passed
+    assert res2[0].rule_name == "session_compliance"
+
+
+@pytest.mark.asyncio
+async def test_validator_session_capability_alignment() -> None:
+    """Verify that server capability warnings are generated if requesting undeclared support."""
+    from unittest.mock import AsyncMock
+    from mcp_debugger.storage.database import Database
+
+    validator = ProtocolValidator()
+    db = AsyncMock(spec=Database)
+    db.get_session.return_value = {"id": 1, "status": "running"}
+
+    # Server initialize response declares empty capabilities (no tools)
+    # But client still sends tools/list request
+    db.get_messages.return_value = [
+        {
+            "message_id": "1",
+            "direction": "client_to_server",
+            "message_type": "request",
+            "method": "initialize",
+            "params": '{"protocolVersion":"2025-03-26"}',
+            "result": None,
+            "error": None,
+        },
+        {
+            "message_id": "1",
+            "direction": "server_to_client",
+            "message_type": "response",
+            "method": "initialize",
+            "params": None,
+            "result": '{"protocolVersion":"2025-03-26", "capabilities": {}}',
+            "error": None,
+        },
+        {
+            "message_id": None,
+            "direction": "client_to_server",
+            "message_type": "notification",
+            "method": "notifications/initialized",
+            "params": None,
+            "result": None,
+            "error": None,
+        },
+        {
+            "message_id": "2",
+            "direction": "client_to_server",
+            "message_type": "request",
+            "method": "tools/list",
+            "params": None,
+            "result": None,
+            "error": None,
+        },
+    ]
+    res = await validator.validate_session(1, db)
+    assert any(not r.passed and r.rule_name == "capability_alignment" for r in res)
+

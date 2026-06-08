@@ -201,3 +201,27 @@ MCP errors implement the standard JSON-RPC 2.0 error specification.
 | `-32603` | Internal error | Internal JSON-RPC / MCP server error. |
 
 *Note: Custom application errors or tool execution failures can be returned in custom code ranges (e.g., matching standard execution error structures or returning `isError: true` inside tool responses).*
+
+---
+
+## Protocol Validation Rules (mcp-debugger)
+
+The `ProtocolValidator` checks compliance based on the following specific rules:
+
+### 1. Message Structure (JSON-RPC 2.0)
+* **Rule**: `jsonrpc` version must be exactly `"2.0"`.
+* **Rule**: Requests must contain a valid `id` (integer or string) and `method` name.
+* **Rule**: Responses must contain `id` (integer, string, or null) and exactly one of `result` or `error`.
+* **Rule**: Notifications must contain a `method` name and must NOT contain `id`.
+
+### 2. Handshake Order Compliance
+* **Rule**: `initialize` request must be the client's first request to the server. Any other method request before initialize yields a critical failure.
+* **Rule**: The server must reply to `initialize` before other client requests are processed.
+* **Rule**: The client should send `notifications/initialized` following the response and prior to requesting resources/tools. If not completed, warnings are raised.
+
+### 3. Capability Alignment
+* **Rule**: Methods that require specific capabilities (e.g., `tools/list` needing `tools` capability) are verified against the capabilities negotiated during the handshake. If the server lacks capability declarations, warning flags are triggered.
+
+### 4. Schema Validity
+* **Rule**: Tool definitions returned in a `tools/list` response result must have a valid `inputSchema` matching standard JSON Schema draft-07. Malformed schemas raise critical failures.
+
