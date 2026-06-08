@@ -256,3 +256,174 @@ def test_inspect_command_populated(mock_db_path: str, tmp_path: Any) -> None:
     txt_content = out_txt.read_text(encoding="utf-8")
     assert "client → server" in txt_content
     assert "tools/list" in txt_content
+
+
+def test_doctor_command_success(tmp_path: Any) -> None:
+    """Verify doctor command passes when environment is healthy."""
+    db_dir = tmp_path / ".mcp-debugger"
+    db_dir.mkdir(parents=True, exist_ok=True)
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch("sys.version_info", (3, 11, 2)),
+        patch("shutil.which", return_value="/usr/bin/mock-bin"),
+    ):
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 0
+        assert "Python version:" in result.stdout
+        assert "SQLite version:" in result.stdout
+        assert "Database directory:" in result.stdout
+        assert "npx command found:" in result.stdout
+
+
+def test_doctor_command_critical_failure(tmp_path: Any) -> None:
+    """Verify doctor command fails with exit code 1 when Python is outdated or database directory is missing/not writable."""
+    # 1. Outdated Python version check
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch("sys.version_info", (3, 9, 0)),
+    ):
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 1
+        assert "Python 3.11+ required" in result.stdout
+
+    # 2. Database directory not writable or missing
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch("sys.version_info", (3, 12, 0)),
+        patch("pathlib.Path.exists", return_value=False),
+    ):
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 1
+        assert "missing" in result.stdout
+
+
+def test_tools_command_errors(mock_db_path: str) -> None:
+    """Verify tools command exits with 1 on invalid session or when session has no tools."""
+    # 1. Invalid session
+    result = runner.invoke(app, ["tools", "9999"])
+    assert result.exit_code == 1
+    assert "Session 9999 not found" in result.stdout
+
+    # 2. Session exists but has no tools
+    async def populate() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        await db.create_session("my_server", friendly_name="empty-session")
+        await db.close()
+
+    asyncio.run(populate())
+
+    result_empty = runner.invoke(app, ["tools", "1"])
+    assert result_empty.exit_code == 1
+    assert "No tools discovered in this session" in result_empty.stdout
+
+    # 3. JSON mode on empty tools
+    result_empty_json = runner.invoke(app, ["tools", "1", "--json"])
+    assert result_empty_json.exit_code == 1
+    assert result_empty_json.stdout.strip() == "[]"
+
+
+def test_tools_command_populated(mock_db_path: str) -> None:
+    """Verify tools command displays discovered tools list, detailed schema, and usage statistics."""
+
+    async def populate() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        # Create session
+        session_id = await db.create_session("my_server", friendly_name="tools-session")
+
+        # Discovered tools
+        await db.log_tool(
+            session_id,
+            {
+                "name": "calculate",
+                "description": "Evaluate math expression",
+                "inputSchema": {"type": "object", "properties": {"expr": {"type": "string"}}},
+            },
+        )
+        await db.log_tool(
+            session_id,
+            {
+                "name": "format_text",
+                "description": "Align strings",
+                "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}},
+            },
+        )
+
+        # Log calls
+        # 2 calls to calculate
+        await db.log_message(
+            session_id,
+            "client_to_server",
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "calculate", "arguments": {"expr": "2+2"}},
+            },
+        )
+        await db.log_message(
+            session_id,
+            "client_to_server",
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "calculate", "arguments": {"expr": "3*3"}},
+            },
+        )
+        # 1 call to format_text
+        await db.log_message(
+            session_id,
+            "client_to_server",
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "format_text", "arguments": {"text": "hello"}},
+            },
+        )
+        await db.close()
+
+    asyncio.run(populate())
+
+    # 1. Plain table output check
+    result = runner.invoke(app, ["tools", "1"])
+    assert result.exit_code == 0
+    assert "Tools discovered in session #1" in result.stdout
+    assert "calculate" in result.stdout
+    assert "Evaluate math expression" in result.stdout
+    assert "format_text" in result.stdout
+    assert "Align strings" in result.stdout
+    # Check calls counts are displayed
+    assert "2" in result.stdout
+    assert "1" in result.stdout
+
+    # 2. JSON mode check
+    result_json = runner.invoke(app, ["tools", "1", "--json"])
+    assert result_json.exit_code == 0
+    parsed = json.loads(result_json.stdout)
+    assert len(parsed) == 2
+    assert parsed[0]["name"] == "calculate"
+    assert parsed[0]["calls"] == 2
+    assert parsed[0]["input_schema"]["properties"]["expr"]["type"] == "string"
+    assert parsed[1]["name"] == "format_text"
+    assert parsed[1]["calls"] == 1
+
+    # 3. Detail schema check
+    result_detail = runner.invoke(app, ["tools", "1", "--detail", "calculate"])
+    assert result_detail.exit_code == 0
+    assert "Tool Schema: calculate" in result_detail.stdout
+    assert "expr" in result_detail.stdout
+
+    # 4. Detail schema JSON check
+    result_detail_json = runner.invoke(app, ["tools", "1", "--detail", "calculate", "--json"])
+    assert result_detail_json.exit_code == 0
+    parsed_detail = json.loads(result_detail_json.stdout)
+    assert parsed_detail["properties"]["expr"]["type"] == "string"
+
+    # 5. Detail schema invalid tool
+    result_detail_invalid = runner.invoke(app, ["tools", "1", "--detail", "non_existent"])
+    assert result_detail_invalid.exit_code == 1
+    assert "Tool non_existent not found" in result_detail_invalid.stdout

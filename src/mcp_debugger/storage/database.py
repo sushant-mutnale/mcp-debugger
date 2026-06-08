@@ -19,6 +19,9 @@ class Database:
     def __init__(self, db_path: Optional[str] = None) -> None:
         """Initialize database file path and directory structure."""
         if db_path is None:
+            db_path = os.environ.get("MCP_DEBUGGER_DATABASE_PATH")
+
+        if db_path is None:
             home_dir = Path.home() / ".mcp-debugger"
             home_dir.mkdir(parents=True, exist_ok=True)
             try:
@@ -443,6 +446,41 @@ class Database:
         except Exception as e:
             logger.warning("Failed to get tools: %s", e)
             return []
+
+    async def get_tool_usage_count(self, session_id: int, tool_name: str) -> int:
+        """Count how many times a tool was called in a session."""
+        try:
+            conn = await self._get_conn()
+            try:
+                # Try to use json_extract first.
+                async with conn.execute(
+                    """
+                    SELECT COUNT(*) FROM messages
+                    WHERE session_id = ?
+                      AND method = 'tools/call'
+                      AND json_extract(params, '$.name') = ?
+                    """,
+                    (session_id, tool_name),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return int(row[0]) if row else 0
+            except sqlite3.OperationalError:
+                # Fallback to substring matching if json_extract is not supported
+                like_pattern = f'%"name":"{tool_name}"%'
+                async with conn.execute(
+                    """
+                    SELECT COUNT(*) FROM messages
+                    WHERE session_id = ?
+                      AND method = 'tools/call'
+                      AND params LIKE ?
+                    """,
+                    (session_id, like_pattern),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return int(row[0]) if row else 0
+        except Exception as e:
+            logger.warning("Failed to get tool usage count: %s", e)
+            return 0
 
     async def get_errors(self, session_id: int) -> List[Dict[str, Any]]:
         """Retrieve all errors logged in a session."""

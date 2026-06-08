@@ -39,6 +39,7 @@ class MockStreamReader:
         if self.event:
             await self.event.wait()
         if self.idx >= len(self.lines):
+            self.idx += 1
             return b""  # EOF
         val = self.lines[self.idx]
         self.idx += 1
@@ -58,7 +59,11 @@ class MockProcess:
         self.killed = False
 
     async def wait(self) -> int:
-        await asyncio.sleep(0.02)
+        for _ in range(200):
+            if self.stdout.idx > len(self.stdout.lines):
+                break
+            await asyncio.sleep(0.005)
+        await asyncio.sleep(0.05)
         return self.exit_code
 
     def terminate(self) -> None:

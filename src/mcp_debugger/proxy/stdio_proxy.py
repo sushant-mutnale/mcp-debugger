@@ -5,7 +5,6 @@ import json
 import logging
 import shlex
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, List, Optional
 
 from mcp_debugger.protocol.schemas import parse_jsonrpc_message
@@ -55,9 +54,8 @@ class StdioProxy:
                     break
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        # Execute blocking read loop in executor
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            await loop.run_in_executor(executor, blocking_read)
+        # Execute blocking read loop in loop default executor to avoid Windows ThreadPoolExecutor shutdown hang
+        await loop.run_in_executor(None, blocking_read)
 
     async def run(self) -> int:
         """Start the subprocess, instantiate the pipeline readers, and run the event piping loop."""
@@ -121,6 +119,11 @@ class StdioProxy:
             line = await queue.get()
             if line is None:
                 logger.info("Client standard input EOF reached. Initiating shutdown.")
+                if self.process and self.process.stdin:
+                    try:
+                        self.process.stdin.close()
+                    except Exception:
+                        pass
                 break
 
             # Process and log message
@@ -180,6 +183,16 @@ class StdioProxy:
 
         try:
             payload = json.loads(stripped)
+
+            # If server response to tools/list, perform tool logging
+            if direction == "server_to_client" and isinstance(payload, dict):
+                result = payload.get("result")
+                if isinstance(result, dict) and "tools" in result:
+                    tools_list = result["tools"]
+                    if isinstance(tools_list, list):
+                        for t in tools_list:
+                            await self.database.log_tool(self.session_id, t)
+
             try:
                 # Attempt standard Pydantic schema validation
                 msg = parse_jsonrpc_message(payload)

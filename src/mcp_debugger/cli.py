@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import sqlite3
 import sys
+from pathlib import Path
 from typing import Any, Optional
 
 import aiosqlite
@@ -457,5 +458,330 @@ def inspect(
         sys.exit(0)
 
 
+@app.command(name="doctor")
+def doctor() -> None:
+    """Run diagnostic checks on the environment and database setup."""
+    import shutil
+    import sqlite3
+    import os
+
+    lines = []
+    critical_failed = False
+
+    # 1. Python version check
+    py_ver = f"{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}"
+    if sys.version_info >= (3, 11):
+        lines.append(Text.assemble(("✓", "green"), f" Python version: {py_ver} (required >=3.11)"))
+    else:
+        lines.append(
+            Text.assemble(
+                ("✗", "red"), f" Python version check: Python 3.11+ required, found {py_ver}"
+            )
+        )
+        critical_failed = True
+
+    # 2. SQLite check
+    try:
+        sqlite_ver = sqlite3.sqlite_version
+        ver_parts = [int(x) for x in sqlite_ver.split(".")]
+        if ver_parts >= [3, 35, 0]:
+            lines.append(Text.assemble(("✓", "green"), f" SQLite version: {sqlite_ver}"))
+        else:
+            lines.append(
+                Text.assemble(
+                    ("✗", "red"),
+                    f" SQLite version check: SQLite version < 3.35.0 (old), found {sqlite_ver}",
+                )
+            )
+            critical_failed = True
+    except ImportError:
+        lines.append(Text.assemble(("✗", "red"), " SQLite check: SQLite not available"))
+        critical_failed = True
+    except Exception as e:
+        lines.append(Text.assemble(("✗", "red"), f" SQLite check: SQLite check failed: {e}"))
+        critical_failed = True
+
+    # 3. Database directory check
+    db_dir = Path.home() / ".mcp-debugger"
+    if db_dir.exists():
+        if os.access(db_dir, os.W_OK):
+            lines.append(Text.assemble(("✓", "green"), f" Database directory: {db_dir} [writable]"))
+        else:
+            lines.append(
+                Text.assemble(
+                    ("✗", "red"),
+                    f" Database directory: Cannot create ~/.mcp-debugger: permission denied at {db_dir}",
+                )
+            )
+            critical_failed = True
+    else:
+        lines.append(
+            Text.assemble(
+                ("✗", "red"),
+                f" Database directory: {db_dir} [missing – suggest running: mkdir {db_dir}]",
+            )
+        )
+        critical_failed = True
+
+    # 4. Database file check
+    db_file_path = db_dir / "sessions.db"
+    if db_file_path.exists():
+        # Check permissions
+        if os.name != "nt":
+            try:
+                mode = os.stat(db_file_path).st_mode & 0o777
+                if mode == 0o600:
+                    lines.append(
+                        Text.assemble(
+                            ("✓", "green"), f" Database file: {db_file_path} [permissions 600]"
+                        )
+                    )
+                else:
+                    lines.append(
+                        Text.assemble(
+                            ("✗", "yellow"),
+                            f" Database file: {db_file_path} [Permissions too open: should be 600, found {oct(mode)[2:]}]",
+                        )
+                    )
+            except Exception as e:
+                lines.append(
+                    Text.assemble(
+                        ("✗", "yellow"),
+                        f" Database file check: Failed to check DB file permissions: {e}",
+                    )
+                )
+        else:
+            lines.append(Text.assemble(("✓", "green"), f" Database file: {db_file_path} [exists]"))
+
+        # Check schema version
+        try:
+            conn = sqlite3.connect(db_file_path)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA user_version;")
+            row = cursor.fetchone()
+            user_ver = row[0] if row else 0
+            conn.close()
+
+            if user_ver == 1:
+                lines.append(Text.assemble(("✓", "green"), f" Database schema version: {user_ver}"))
+            else:
+                lines.append(
+                    Text.assemble(
+                        ("✗", "red"),
+                        f" Database schema check: Schema version mismatch: expected 1, got {user_ver}",
+                    )
+                )
+                critical_failed = True
+        except Exception as e:
+            lines.append(Text.assemble(("✗", "red"), f" Database schema check failed: {e}"))
+            critical_failed = True
+    else:
+        lines.append(
+            Text.assemble(
+                ("✓", "green"),
+                " Database file: no database file found yet (will be created on first proxy run)",
+            )
+        )
+        lines.append(Text.assemble(("✓", "green"), " Database schema version: not yet created"))
+
+    # 5. npx check
+    npx_path = shutil.which("npx")
+    if npx_path:
+        lines.append(
+            Text.assemble(
+                ("✓", "green"), f" npx command found: {npx_path} (for Node.js MCP servers)"
+            )
+        )
+    else:
+        lines.append(
+            Text.assemble(
+                ("✗", "yellow"),
+                " npx command check: npx not found – MCP servers requiring Node.js may fail",
+            )
+        )
+
+    # 6. node check
+    node_path = shutil.which("node")
+    if node_path:
+        lines.append(Text.assemble(("✓", "green"), f" Node.js found: {node_path}"))
+    else:
+        lines.append(
+            Text.assemble(
+                ("✗", "yellow"),
+                " Node.js not found – some MCP servers require Node.js",
+            )
+        )
+
+    # 7. git check
+    git_path = shutil.which("git")
+    if git_path:
+        lines.append(Text.assemble(("✓", "green"), f" git command found: {git_path}"))
+    else:
+        lines.append(Text.assemble(("✓", "green"), " git not found (optional)"))
+
+    # 8. PATH check
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    path_summary = ", ".join(path_dirs[:3])
+    if len(path_dirs) > 3:
+        path_summary += ", ..."
+    lines.append(Text.assemble(("✓", "green"), f" PATH includes: {path_summary}"))
+
+    # Render Panel
+    panel_content = Text()
+    for idx, line in enumerate(lines):
+        if idx > 0:
+            panel_content.append("\n")
+        panel_content.append(line)
+
+    console.print(
+        Panel(
+            panel_content,
+            title="🔍 MCP Debugger Environment Check",
+            title_align="left",
+            border_style="red" if critical_failed else "green",
+            safe_box=True,
+        )
+    )
+
+    if critical_failed:
+        raise typer.Exit(code=1)
+    else:
+        raise typer.Exit(code=0)
+
+
+@app.command(name="tools")
+def tools(
+    session_id: int = typer.Argument(..., help="The ID of the session to view tools for"),
+    detail: Optional[str] = typer.Option(
+        None,
+        "--detail",
+        help="Show the full input schema for a specific tool",
+    ),
+    json_mode: bool = typer.Option(
+        False,
+        "--json",
+        help="Output raw JSON array of tools for scripting",
+    ),
+) -> None:
+    """View discovered tools and their usage schemas/call counts for a session."""
+
+    async def _run() -> None:
+        db = Database()
+        try:
+            await db.connect()
+            session = await db.get_session(session_id)
+        except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
+            console.print(
+                f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
+            )
+            console.print(
+                "[yellow]Recovery Suggestion: Try deleting or renaming the file to reset the database.[/yellow]"
+            )
+            sys.exit(1)
+        except Exception as e:
+            console.print(f"[red]Error connecting to database: {e}[/red]")
+            sys.exit(1)
+
+        if not session:
+            console.print(f"Session {session_id} not found")
+            await db.close()
+            sys.exit(1)
+
+        try:
+            tools_list = await db.get_tools(session_id)
+        except Exception as e:
+            console.print(f"[red]Error fetching tools: {e}[/red]")
+            await db.close()
+            sys.exit(1)
+
+        if not tools_list:
+            if json_mode:
+                print("[]")
+            else:
+                console.print("No tools discovered in this session")
+            await db.close()
+            sys.exit(1)
+
+        # If detailed view requested for a specific tool
+        if detail:
+            target_tool = next((t for t in tools_list if t["name"] == detail), None)
+            if not target_tool:
+                console.print(f"Tool {detail} not found in this session")
+                await db.close()
+                sys.exit(1)
+
+            try:
+                schema_dict = json.loads(target_tool["input_schema"])
+            except Exception:
+                schema_dict = target_tool["input_schema"]
+
+            if json_mode:
+                print(json.dumps(schema_dict, indent=2))
+            else:
+                syntax_schema = Syntax(json.dumps(schema_dict, indent=2), "json")
+                console.print(
+                    Panel(
+                        syntax_schema,
+                        title=f"🔧 Tool Schema: {detail}",
+                        title_align="left",
+                        border_style="magenta",
+                        safe_box=True,
+                    )
+                )
+            await db.close()
+            return
+
+        # Fetch usage counts
+        tools_with_calls = []
+        for t in tools_list:
+            calls_count = await db.get_tool_usage_count(session_id, t["name"])
+            try:
+                schema_dict = json.loads(t["input_schema"])
+            except Exception:
+                schema_dict = t["input_schema"]
+
+            tools_with_calls.append(
+                {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "input_schema": schema_dict,
+                    "calls": calls_count,
+                }
+            )
+
+        if json_mode:
+            print(json.dumps(tools_with_calls, indent=2))
+        else:
+            session_name_part = (
+                f" ({session['friendly_name']})" if session.get("friendly_name") else ""
+            )
+            table = Table(
+                title=f"Tools discovered in session #{session_id}{session_name_part}",
+                border_style="magenta",
+            )
+            table.add_column("Name", style="cyan bold")
+            table.add_column("Description", style="white")
+            table.add_column("Calls", justify="right", style="green")
+
+            for tc in tools_with_calls:
+                table.add_row(
+                    tc["name"],
+                    tc["description"] or "—",
+                    str(tc["calls"]),
+                )
+            console.print(table)
+
+        await db.close()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
 def main() -> None:
     app()
+
+
+if __name__ == "__main__":
+    main()
