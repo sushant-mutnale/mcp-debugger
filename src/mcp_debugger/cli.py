@@ -936,8 +936,8 @@ def tools(
 
             for tc in tools_with_calls:
                 table.add_row(
-                    tc["name"],
-                    tc["description"] or "—",
+                    str(tc["name"]),
+                    str(tc["description"] or "—"),
                     str(tc["calls"]),
                 )
             console.print(table)
