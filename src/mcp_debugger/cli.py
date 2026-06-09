@@ -6,7 +6,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple
 
 import aiosqlite
 import typer
@@ -647,6 +647,177 @@ def doctor() -> None:
         raise typer.Exit(code=1)
     else:
         raise typer.Exit(code=0)
+
+
+def calculate_compliance_score(results: List[Any]) -> Tuple[int, int, int]:
+    """Calculates the compliance score based on 5 critical rule categories:
+
+    1. jsonrpc_version
+    2. envelope_type (envelope_type, response_envelope, method_format)
+    3. initialize_first
+    4. handshake_order (severity="critical")
+    5. tool_schema_validity (tool_schema_validity, tool_input_schema_format)
+
+    Returns (score_percentage, passed_count, total_count)
+    """
+    # If there is a server startup or connection error, score is 0%
+    if any(
+        r.rule_name in ("server_startup", "server_connection", "handshake_timeout") and not r.passed
+        for r in results
+    ):
+        return 0, 0, 5
+
+    failed_rules = set()
+    for r in results:
+        if not r.passed and r.severity == "critical":
+            if r.rule_name == "jsonrpc_version":
+                failed_rules.add("jsonrpc_version")
+            elif r.rule_name in ("envelope_type", "response_envelope", "method_format"):
+                failed_rules.add("envelope_type")
+            elif r.rule_name == "initialize_first":
+                failed_rules.add("initialize_first")
+            elif r.rule_name == "handshake_order":
+                failed_rules.add("handshake_order")
+            elif r.rule_name in ("tool_schema_validity", "tool_input_schema_format"):
+                failed_rules.add("tool_schema_validity")
+
+    passed_count = 5 - len(failed_rules)
+    percentage = int((passed_count / 5) * 100)
+    return percentage, passed_count, 5
+
+
+@app.command(name="validate")
+def validate(
+    session_id: Optional[int] = typer.Argument(
+        None, help="The ID of the recorded session to validate"
+    ),
+    server: Optional[str] = typer.Option(
+        None, "--server", "-s", help="Launch a live MCP server command and test it"
+    ),
+    json_mode: bool = typer.Option(
+        False, "--json", help="Output raw JSON array of validation results"
+    ),
+) -> None:
+    """Validate MCP protocol compliance of a live server or recorded session."""
+
+    async def _run() -> None:
+        if session_id is not None and server is not None:
+            console.print(
+                "[red]Error: Please specify either a session_id or --server, not both.[/red]"
+            )
+            sys.exit(1)
+        if session_id is None and server is None:
+            console.print(
+                "[red]Error: Please specify a session_id to validate or run a live server validation with --server.[/red]"
+            )
+            sys.exit(1)
+
+        from mcp_debugger.protocol.validator import ProtocolValidator
+        from mcp_debugger.validate_live import run_live_validation
+
+        if server is not None:
+            if not json_mode:
+                console.print(f"🔍 Validating live server: {server}")
+
+            try:
+                sid, results = await run_live_validation(server)
+            except Exception as e:
+                console.print(f"[red]Error during live validation: {e}[/red]")
+                sys.exit(1)
+        else:
+            if session_id is None:
+                console.print("[red]Error: session_id is required.[/red]")
+                sys.exit(1)
+
+            db = Database()
+            try:
+                await db.connect()
+                session = await db.get_session(session_id)
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
+
+            if not session:
+                console.print(f"[red]Error: Session #{session_id} not found.[/red]")
+                await db.close()
+                sys.exit(1)
+
+            if not json_mode:
+                console.print(f"🔍 Validating recorded session #{session_id}")
+
+            try:
+                validator = ProtocolValidator()
+                results = await validator.validate_session(session_id, db)
+            except Exception as e:
+                console.print(f"[red]Error validating session: {e}[/red]")
+                await db.close()
+                sys.exit(1)
+            finally:
+                await db.close()
+
+        # Render results
+        if json_mode:
+            json_results = []
+            for r in results:
+                try:
+                    json_results.append(r.model_dump())
+                except AttributeError:
+                    json_results.append(r.dict())
+            print(json.dumps(json_results, indent=2))
+        else:
+            table = Table(
+                title="Validation Results",
+                border_style="magenta",
+            )
+            table.add_column("Rule", style="cyan bold")
+            table.add_column("Severity", style="white")
+            table.add_column("Message", style="white")
+
+            has_critical = False
+            critical_count = 0
+            warning_count = 0
+
+            for r in results:
+                if not r.passed:
+                    if r.severity == "critical":
+                        severity_text = "[red]🔴 CRIT[/red]"
+                        has_critical = True
+                        critical_count += 1
+                    elif r.severity == "warning":
+                        severity_text = "[yellow]🟡 WARN[/yellow]"
+                        warning_count += 1
+                    else:
+                        severity_text = "[blue]🔵 INFO[/blue]"
+                else:
+                    severity_text = "[green]✓ PASS[/green]"
+
+                msg_detail = r.message
+                if r.suggestion:
+                    msg_detail += f"\n[yellow]→ Suggestion: {r.suggestion}[/yellow]"
+
+                table.add_row(r.rule_name, severity_text, msg_detail)
+
+            console.print(table)
+
+            score, passed, total = calculate_compliance_score(results)
+
+            if has_critical:
+                console.print(
+                    f"\n[red]Overall compliance: {critical_count} critical failures, {warning_count} warnings.[/red]"
+                )
+                console.print(f"Compliance score: {score}% ({passed}/{total} critical rules passed)")
+                sys.exit(1)
+            else:
+                console.print(
+                    f"\n[green]Overall compliance: 0 critical failures, {warning_count} warnings.[/green]"
+                )
+                console.print(f"Compliance score: {score}% ({passed}/{total} critical rules passed)")
+                sys.exit(0)
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        sys.exit(0)
 
 
 @app.command(name="tools")

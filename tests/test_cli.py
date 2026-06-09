@@ -427,3 +427,221 @@ def test_tools_command_populated(mock_db_path: str) -> None:
     result_detail_invalid = runner.invoke(app, ["tools", "1", "--detail", "non_existent"])
     assert result_detail_invalid.exit_code == 1
     assert "Tool non_existent not found" in result_detail_invalid.stdout
+
+
+def test_validate_help_or_missing() -> None:
+    """Verify validate command fails when neither session_id nor --server is provided."""
+    result = runner.invoke(app, ["validate"])
+    assert result.exit_code == 1
+    assert "Error: Please specify a session_id" in result.stdout
+
+
+def test_validate_both() -> None:
+    """Verify validate command fails when both session_id and --server are provided."""
+    result = runner.invoke(app, ["validate", "1", "--server", "dummy"])
+    assert result.exit_code == 1
+    assert "Error: Please specify either a session_id or --server, not both." in result.stdout
+
+
+def test_validate_recorded_session_missing(mock_db_path: str) -> None:
+    """Verify validating a non-existent recorded session."""
+    result = runner.invoke(app, ["validate", "9999"])
+    assert result.exit_code == 1
+    assert "Error: Session #9999 not found." in result.stdout
+
+
+def test_validate_recorded_session_passing(mock_db_path: str) -> None:
+    """Verify validating a compliant recorded session."""
+    async def populate() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        session_id = await db.create_session("dummy")
+        # Initialize Request
+        await db.log_message(
+            session_id,
+            "client_to_server",
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"},
+                },
+            },
+        )
+        # Initialize Response
+        await db.log_message(
+            session_id,
+            "server_to_client",
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "serverInfo": {"name": "test-server", "version": "1.0"},
+                },
+            },
+        )
+        # Initialized Notification
+        await db.log_message(
+            session_id,
+            "client_to_server",
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+            },
+        )
+        # Tools List Request
+        await db.log_message(
+            session_id,
+            "client_to_server",
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+            },
+        )
+        # Tools List Response
+        await db.log_message(
+            session_id,
+            "server_to_client",
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {"tools": []},
+            },
+        )
+        await db.close()
+
+    asyncio.run(populate())
+    result = runner.invoke(app, ["validate", "1"])
+    assert result.exit_code == 0
+    assert "Overall compliance: 0 critical failures" in result.stdout
+    assert "Compliance score: 100%" in result.stdout
+
+
+def test_validate_recorded_session_critical_failures(mock_db_path: str) -> None:
+    """Verify validating a recorded session with critical errors."""
+    async def populate() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        session_id = await db.create_session("dummy")
+        # First request is tools/list, not initialize
+        await db.log_message(
+            session_id,
+            "client_to_server",
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+            },
+        )
+        await db.close()
+
+    asyncio.run(populate())
+    result = runner.invoke(app, ["validate", "1"])
+    assert result.exit_code == 1
+    assert "Overall compliance: 2 critical failures" in result.stdout
+    assert "Compliance score: 60%" in result.stdout
+
+
+def test_validate_live_server_success(tmp_path: Any) -> None:
+    """Test live server validation with a compliant mock subprocess python script."""
+    import sys
+    server_script = tmp_path / "mock_server.py"
+    server_script.write_text("""
+import sys
+import json
+
+def main():
+    # 1. Read initialize request
+    line = sys.stdin.readline()
+    if not line:
+        return
+    req = json.loads(line)
+    if req.get("method") == "initialize":
+        res = {
+            "jsonrpc": "2.0",
+            "id": req["id"],
+            "result": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "serverInfo": {"name": "mock-server", "version": "1.0.0"}
+            }
+        }
+        sys.stdout.write(json.dumps(res) + "\\n")
+        sys.stdout.flush()
+    
+    # 2. Read notifications/initialized
+    line = sys.stdin.readline()
+    if not line:
+        return
+    
+    # 3. Read tools/list request
+    line = sys.stdin.readline()
+    if not line:
+        return
+    req2 = json.loads(line)
+    if req2.get("method") == "tools/list":
+        res2 = {
+            "jsonrpc": "2.0",
+            "id": req2["id"],
+            "result": {
+                "tools": [
+                    {
+                        "name": "greet",
+                        "description": "Greet user",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"}
+                            },
+                            "required": ["name"]
+                        }
+                    }
+                ]
+            }
+        }
+        sys.stdout.write(json.dumps(res2) + "\\n")
+        sys.stdout.flush()
+
+if __name__ == "__main__":
+    main()
+""".strip())
+
+    cmd = f"{sys.executable} {server_script}"
+    result = runner.invoke(app, ["validate", "--server", cmd])
+    assert result.exit_code == 0
+    assert "Overall compliance: 0 critical failures" in result.stdout
+    assert "Compliance score: 100%" in result.stdout
+
+
+def test_validate_live_server_timeout(tmp_path: Any) -> None:
+    """Test live server validation timing out if the server hangs."""
+    import sys
+    server_script = tmp_path / "hanging_server.py"
+    server_script.write_text("""
+import time
+time.sleep(20)
+""".strip())
+
+    def mock_wait_for(coro: Any, timeout: Any) -> Any:
+        coro.close()
+        raise asyncio.TimeoutError()
+
+    with patch("asyncio.wait_for", mock_wait_for):
+        cmd = f"{sys.executable} {server_script}"
+        result = runner.invoke(app, ["validate", "--server", cmd])
+        assert result.exit_code == 1
+        assert "handshake_timeout" in result.stdout
+
+
+def test_validate_live_server_nonexistent() -> None:
+    """Test live server validation with nonexistent command."""
+    result = runner.invoke(app, ["validate", "--server", "nonexistent_command_12345"])
+    assert result.exit_code == 1
+    assert "server_startup" in result.stdout or "server_connection" in result.stdout
+

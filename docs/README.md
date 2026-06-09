@@ -15,6 +15,7 @@ Here is the directory of all documentation files:
 | [06-Production Standards](06-production-standards.md) | Project coding standards: logging conventions, error handling policies, test requirements, CI/CD pipelines, and pre-commit hooks. |
 | [07-Glossary](07-glossary.md) | Key terms and definitions (e.g. proxy, replay, trace) with examples. |
 | [08-FAQ](08-faq.md) | Frequently asked questions and anticipated problems. |
+| [CLI Commands Reference](commands.md) | Guide to CLI subcommands with examples for the validate command. |
 
 ---
 ## Project Links
