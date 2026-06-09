@@ -429,6 +429,129 @@ def test_tools_command_populated(mock_db_path: str) -> None:
     assert "Tool non_existent not found" in result_detail_invalid.stdout
 
 
+def test_errors_command_missing_session(mock_db_path: str) -> None:
+    """Verify errors command output when session ID does not exist."""
+    result = runner.invoke(app, ["errors", "9999"])
+    assert result.exit_code == 1
+    assert "Session 9999 not found" in result.stdout
+
+
+def test_errors_command_empty_session(mock_db_path: str) -> None:
+    """Verify errors command when session exists but has no errors."""
+    async def create_empty() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        await db.create_session("dummy")
+        await db.close()
+
+    asyncio.run(create_empty())
+    result = runner.invoke(app, ["errors", "1"])
+    assert result.exit_code == 0
+    assert "No classified errors found" in result.stdout
+
+    result_json = runner.invoke(app, ["errors", "1", "--json"])
+    assert result_json.exit_code == 0
+    assert result_json.stdout.strip() == "[]"
+
+
+def test_errors_command_populated(mock_db_path: str) -> None:
+    """Verify errors command lists, filters, and formats classified errors."""
+    async def populate() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        session_id = await db.create_session("dummy")
+        
+        # 1. Log a protocol error
+        await db.log_error(
+            session_id=session_id,
+            message_id=None,
+            error_type="protocol",
+            error_message="Method not found: foo",
+            suggestion="check spelling",
+            error_code=-32601,
+        )
+        
+        # 2. Log a tool execution error
+        await db.log_error(
+            session_id=session_id,
+            message_id=None,
+            error_type="tool_execution",
+            error_message="Permission denied reading file",
+            suggestion="check permissions",
+            error_code=None,
+        )
+        await db.close()
+
+    asyncio.run(populate())
+
+    # Plain table output check
+    result = runner.invoke(app, ["errors", "1"])
+    assert result.exit_code == 0
+    assert "Classified Errors for Session 1" in result.stdout
+    assert "PROTOCOL" in result.stdout
+    assert "Method not found: foo" in result.stdout
+    assert "check spelling" in result.stdout
+    assert "TOOL_EXECUTION" in result.stdout
+    assert "Permission denied reading file" in result.stdout
+    assert "check permissions" in result.stdout
+
+    # Category filter check
+    result_filter = runner.invoke(app, ["errors", "1", "--category", "protocol"])
+    assert result_filter.exit_code == 0
+    assert "PROTOCOL" in result_filter.stdout
+    assert "TOOL_EXECUTION" not in result_filter.stdout
+
+    # JSON mode check
+    result_json = runner.invoke(app, ["errors", "1", "--json"])
+    assert result_json.exit_code == 0
+    parsed = json.loads(result_json.stdout)
+    assert len(parsed) == 2
+    assert parsed[0]["error_type"] == "protocol"
+    assert parsed[0]["error_code"] == -32601
+    assert parsed[1]["error_type"] == "tool_execution"
+    assert parsed[1]["suggestion"] == "check permissions"
+
+
+def test_inspect_shows_classified_errors(mock_db_path: str) -> None:
+    """Verify that inspect command renders classified error badge and suggestion dynamically or from DB."""
+    async def populate() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        session_id = await db.create_session("dummy")
+
+        # Log a request
+        await db.log_message(
+            session_id=session_id,
+            direction="client_to_server",
+            message={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {}},
+        )
+
+        # Log a response containing an error
+        msg_id = await db.log_message(
+            session_id=session_id,
+            direction="server_to_client",
+            message={"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "Method not found"}},
+        )
+
+        # Log the classified error referencing the message
+        await db.log_error(
+            session_id=session_id,
+            message_id=msg_id,
+            error_type="protocol",
+            error_message="Method not found",
+            suggestion="Check spelling. Did you mean 'tools/list'?",
+            error_code=-32601,
+        )
+        await db.close()
+
+    asyncio.run(populate())
+
+    result = runner.invoke(app, ["inspect", "1"])
+    assert result.exit_code == 0
+    assert "PROTOCOL ERROR" in result.stdout
+    assert "💡 Suggestion: Check spelling" in result.stdout
+
+
 def test_validate_help_or_missing() -> None:
     """Verify validate command fails when neither session_id nor --server is provided."""
     result = runner.invoke(app, ["validate"])

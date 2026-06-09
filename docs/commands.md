@@ -8,6 +8,7 @@ This document describes all command line subcommands provided by `mcp-debugger`,
 *   `list`: View historical sessions.
 *   `inspect`: Detailed inspect log lines of a session.
 *   `tools`: Show discovered tools.
+*   `errors`: List and filter classified errors from a session.
 *   `validate`: Verify spec compliance on live servers or historical logs.
 
 ---
@@ -76,3 +77,37 @@ mcp-debugger validate --server "python my_server.py" --json
 ### Exit Codes
 *   `0`: Compliance check succeeded (no **critical** rule failures found. Warnings are allowed).
 *   `1`: Compliance check failed (one or more **critical** failures found, or subprocess failed to launch).
+
+---
+
+## The `errors` Command
+
+The `errors` command queries and lists categorized runtime errors recorded during a session, including both protocol errors and tool-execution failures.
+
+### Usage Options
+
+```bash
+mcp-debugger errors [SESSION_ID] [OPTIONS]
+```
+
+*   `[SESSION_ID]`: The recorded session ID to retrieve errors from (required).
+*   `--category <name>`: Filter errors by category: `protocol`, `tool_execution`, `timeout`, `connection`, or `unknown`.
+*   `--json`: Outputs error results as a JSON array (useful for CI/CD scripting or integration).
+
+### Examples
+
+#### 1. Listing All Errors in a Session
+```bash
+mcp-debugger errors 5
+```
+
+#### 2. Filtering by Category
+To display only tool execution failures:
+```bash
+mcp-debugger errors 5 --category tool_execution
+```
+
+#### 3. Output as JSON
+```bash
+mcp-debugger errors 5 --json
+```

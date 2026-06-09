@@ -8,6 +8,7 @@ import sys
 from typing import Any, List, Optional
 
 from mcp_debugger.protocol.schemas import parse_jsonrpc_message
+from mcp_debugger.protocol.error_classifier import ErrorClassifier
 from mcp_debugger.storage.database import Database
 
 logger = logging.getLogger("mcp_debugger.proxy")
@@ -193,11 +194,12 @@ class StdioProxy:
                         for t in tools_list:
                             await self.database.log_tool(self.session_id, t)
 
+            message_id: Optional[int] = None
             try:
                 # Attempt standard Pydantic schema validation
                 msg = parse_jsonrpc_message(payload)
                 try:
-                    await self.database.log_message(
+                    message_id = await self.database.log_message(
                         session_id=self.session_id, direction=direction, message=msg
                     )
                 except Exception as db_err:
@@ -210,7 +212,7 @@ class StdioProxy:
                     logger.debug("Validation failed for message: %s (Error: %s)", stripped, val_err)
                 # Log raw payload to SQLite on schema mismatches
                 try:
-                    await self.database.log_message(
+                    message_id = await self.database.log_message(
                         session_id=self.session_id, direction=direction, message=payload
                     )
                 except Exception as db_err:
@@ -218,6 +220,34 @@ class StdioProxy:
                         f"[mcp-debugger error] Failed to log raw message to database: {db_err}",
                         file=sys.stderr,
                     )
+
+            if message_id is not None and message_id > 0:
+                classifier = ErrorClassifier()
+                classification = classifier.classify(payload)
+                if classification is not None:
+                    cat, msg_text, sug = classification
+                    err_code = None
+                    if "error" in payload and isinstance(payload["error"], dict):
+                        raw_code = payload["error"].get("code")
+                        if raw_code is not None:
+                            try:
+                                err_code = int(raw_code)
+                            except Exception:
+                                pass
+                    try:
+                        await self.database.log_error(
+                            session_id=self.session_id,
+                            message_id=message_id,
+                            error_type=cat,
+                            error_message=msg_text,
+                            suggestion=sug,
+                            error_code=err_code,
+                        )
+                    except Exception as db_err:
+                        print(
+                            f"[mcp-debugger error] Failed to log classified error to database: {db_err}",
+                            file=sys.stderr,
+                        )
         except json.JSONDecodeError as json_err:
             # Print warnings strictly to stderr to prevent interference with stdout stream
             print(
@@ -229,9 +259,11 @@ class StdioProxy:
             try:
                 await self.database.log_error(
                     session_id=self.session_id,
-                    error_code=-32700,
-                    error_type="parse_error",
+                    message_id=None,
+                    error_type="protocol",
                     error_message=f"Malformed JSON: {json_err}",
+                    suggestion="Ensure messages conform to standard JSON format.",
+                    error_code=-32700,
                     stack_trace=stripped,
                 )
             except Exception as db_err:

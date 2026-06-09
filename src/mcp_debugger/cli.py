@@ -10,7 +10,7 @@ from typing import Any, List, Optional, Tuple
 
 import aiosqlite
 import typer
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
@@ -18,6 +18,7 @@ from rich.text import Text
 
 from mcp_debugger.proxy.stdio_proxy import StdioProxy
 from mcp_debugger.storage.database import Database
+from mcp_debugger.protocol.error_classifier import ErrorClassifier
 
 app = typer.Typer(help="MCP proxy debugger – inspect, record, validate, and replay MCP sessions")
 console = Console()
@@ -323,6 +324,11 @@ def inspect(
                 limit=limit,
                 offset=offset,
             )
+            try:
+                errors = await db.get_errors(session_id)
+                error_map = {err["message_id"]: err for err in errors if err.get("message_id") is not None}
+            except Exception:
+                error_map = {}
         except Exception as e:
             console.print(f"[red]Error fetching messages: {e}[/red]")
             await db.close()
@@ -396,6 +402,18 @@ def inspect(
                 json_body = json.dumps(envelope, indent=2)
                 syntax_body = Syntax(json_body, "json")
 
+                err_info = error_map.get(msg.get("id"))
+                if err_info is None:
+                    classifier = ErrorClassifier()
+                    classification = classifier.classify(envelope)
+                    if classification is not None:
+                        cat, msg_text, sug = classification
+                        err_info = {
+                            "error_type": cat,
+                            "error_message": msg_text,
+                            "suggestion": sug,
+                        }
+
                 time_str = "unknown"
                 if msg.get("timestamp") is not None:
                     try:
@@ -405,7 +423,7 @@ def inspect(
                         time_str = str(msg["timestamp"])
 
                 direction_str = msg.get("direction")
-                is_error = msg.get("error") is not None
+                is_error = (msg.get("error") is not None) or (err_info is not None)
 
                 header = Text()
                 if direction_str == "client_to_server":
@@ -422,6 +440,10 @@ def inspect(
                         header.append("server → client", style="green")
                         border_style = "green"
 
+                if err_info is not None:
+                    badge = f" | [{err_info['error_type'].upper()} ERROR]"
+                    header.append(badge, style="red bold")
+
                 header.append(" | method: ", style="white")
                 header.append(msg.get("method") or "unknown", style="yellow bold")
                 header.append(" | ", style="white")
@@ -432,8 +454,14 @@ def inspect(
                     header.append(" | ", style="white")
                     header.append(f"+{latency:.0f}ms", style="magenta bold")
 
+                if err_info is not None and err_info.get("suggestion"):
+                    suggestion_text = Text(f"\n💡 Suggestion: {err_info['suggestion']}", style="yellow italic")
+                    panel_content = Group(syntax_body, suggestion_text)
+                else:
+                    panel_content = Group(syntax_body)
+
                 panel = Panel(
-                    syntax_body,
+                    panel_content,
                     title=header,
                     title_align="left",
                     border_style=border_style,
@@ -449,6 +477,95 @@ def inspect(
             else:
                 for panel in panels:
                     console.print(panel)
+
+        await db.close()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
+@app.command(name="errors")
+def list_errors(
+    session_id: int = typer.Argument(..., help="The ID of the session to check for errors"),
+    category: Optional[str] = typer.Option(
+        None,
+        "--category",
+        help="Filter errors by category (protocol, tool_execution, timeout, connection, unknown)",
+    ),
+    json_mode: bool = typer.Option(
+        False,
+        "--json",
+        help="Output raw JSON array of error objects",
+    ),
+) -> None:
+    """List and filter classified errors from a specific debugging session."""
+
+    async def _run() -> None:
+        db = Database()
+        try:
+            await db.connect()
+            session = await db.get_session(session_id)
+        except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
+            console.print(
+                f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
+            )
+            sys.exit(1)
+        except Exception as e:
+            console.print(f"[red]Error connecting to database: {e}[/red]")
+            sys.exit(1)
+
+        if not session:
+            console.print(f"Session {session_id} not found")
+            await db.close()
+            sys.exit(1)
+
+        try:
+            errors = await db.get_errors(session_id)
+        except Exception as e:
+            console.print(f"[red]Error fetching errors: {e}[/red]")
+            await db.close()
+            sys.exit(1)
+
+        # If category is provided, filter the errors list
+        if category:
+            cat_lower = category.lower().strip()
+            errors = [e for e in errors if e.get("error_type", "").lower() == cat_lower]
+
+        if json_mode:
+            # Format errors list to standard JSON format
+            json_errors = []
+            for err in errors:
+                json_errors.append({
+                    "id": err["id"],
+                    "message_id": err["message_id"],
+                    "error_code": err["error_code"],
+                    "error_type": err["error_type"],
+                    "error_message": err["error_message"],
+                    "suggestion": err["suggestion"],
+                    "stack_trace": err["stack_trace"],
+                    "classified_at": err["classified_at"],
+                })
+            print(json.dumps(json_errors, indent=2))
+        else:
+            if not errors:
+                console.print(f"[yellow]No classified errors found for session {session_id}[/yellow]")
+            else:
+                table = Table(title=f"Classified Errors for Session {session_id}", border_style="red")
+                table.add_column("ID", justify="right", style="cyan")
+                table.add_column("Type", style="magenta bold")
+                table.add_column("Message", style="white")
+                table.add_column("Suggestion", style="yellow italic")
+
+                for err in errors:
+                    table.add_row(
+                        str(err["id"]),
+                        str(err["error_type"]).upper(),
+                        str(err["error_message"]),
+                        str(err["suggestion"] or "—"),
+                      )
+                console.print(table)
 
         await db.close()
 
@@ -762,6 +879,7 @@ def validate(
                 try:
                     json_results.append(r.model_dump())
                 except AttributeError:
+                    # pyrefly: ignore [deprecated]
                     json_results.append(r.dict())
             print(json.dumps(json_results, indent=2))
         else:

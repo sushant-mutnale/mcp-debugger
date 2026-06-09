@@ -227,7 +227,7 @@ async def test_proxy_malformed_json(temp_db: Database, capsys: pytest.CaptureFix
     # Check that error logs are stored in the database
     errors = await temp_db.get_errors(session_id)
     assert len(errors) == 2
-    assert errors[0]["error_type"] == "parse_error"
+    assert errors[0]["error_type"] == "protocol"
     assert "invalid client json" in errors[0]["stack_trace"]
     assert "invalid server json" in errors[1]["stack_trace"]
 

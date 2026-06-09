@@ -58,6 +58,11 @@ graph TD
   - Validation of tool input/output JSON schemas in `tools/list` and `tools/call`.
 - **Validation Reporting**: Returns structured check summaries (`passed`, `severity`, `message`, `suggestion`) that can raise warnings or block builds in a CI environment.
 
+### [protocol/error_classifier.py](file:///d:/python/MCP_DEBUG/src/mcp_debugger/protocol/error_classifier.py)
+- **Error Diagnostics**: Analyzes failed responses (both JSON-RPC error structures and successful JSON-RPC results where `isError` is true).
+- **Categorization**: Groups errors into `protocol`, `tool_execution`, `timeout`, `connection`, or `unknown`.
+- **Heuristic Remediation**: Automatically associates actionable suggestions (e.g. recommending spelling checks for `-32601` or file/directory permissions checks for filesystem failures).
+
 ### [storage/database.py](file:///d:/python/MCP_DEBUG/src/mcp_debugger/storage/database.py)
 - **Async Threading/Aiosqlite**: Provides thread-safe, asynchronous operations to interact with the SQLite local database.
 - **Bootstrap Schema**: Handles automated schema creation (`sessions`, `messages`, `tools`, `errors`) on first run or database initialization.
@@ -88,3 +93,4 @@ graph TD
 - **Subprocess Crash**: If the target server subprocess exits prematurely, the proxy catches the termination, logs a fatal error state to the database, closes the session, and exits with code `1`.
 - **Malformed JSON-RPC Lines**: If either client or server prints arbitrary text or invalid JSON lines (such as debug print statements), the proxy logs a warnings category event, stores it as raw text, but forwards the raw bytes transparently to prevent session breakage.
 - **Database Write Failures**: SQLite database writes are executed out-of-band relative to the proxy forward stream. If database connectivity fails or becomes locked, write operations retry up to 3 times before fallback logging to `sys.stderr` is used. This prevents database bottlenecks from freezing the active proxy pipe.
+- **Error Classification & Diagnostics**: During recording or ad-hoc inspection, any message containing an error envelope or a tool execution error (successful response with `isError: true`) is processed by the `ErrorClassifier` component. The classified error (with categories like protocol, tool_execution, timeout, connection, unknown) and remediation suggestions are persisted in the `errors` table, and visually highlighted in the CLI commands (`inspect` and `errors`).

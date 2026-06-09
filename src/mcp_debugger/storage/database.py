@@ -149,11 +149,19 @@ class Database:
                 error_code INTEGER,
                 error_type TEXT,
                 error_message TEXT,
+                suggestion TEXT,
                 stack_trace TEXT,
                 classified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """
         )
+
+        # Migrate errors table to include suggestion if missing
+        async with conn.execute("PRAGMA table_info(errors);") as cursor:
+            errors_columns = [row[1] for row in await cursor.fetchall()]
+        if errors_columns and "suggestion" not in errors_columns:
+            await conn.execute("ALTER TABLE errors ADD COLUMN suggestion TEXT;")
+            await conn.commit()
 
         # Indexes
         await conn.execute(
@@ -334,29 +342,33 @@ class Database:
     async def log_error(
         self,
         session_id: int,
-        error_code: int,
-        error_type: str,
-        error_message: str,
         message_id: Optional[int] = None,
+        error_type: str = "unknown",
+        error_message: str = "",
+        suggestion: Optional[str] = None,
+        error_code: Optional[int] = None,
         stack_trace: Optional[str] = None,
-    ) -> None:
+    ) -> int:
         """Store classified protocol or execution errors."""
         try:
             conn = await self._get_conn()
-            await conn.execute(
+            async with conn.execute(
                 """
-                INSERT INTO errors (session_id, message_id, error_code, error_type, error_message, stack_trace)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO errors (session_id, message_id, error_code, error_type, error_message, suggestion, stack_trace)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, message_id, error_code, error_type, error_message, stack_trace),
-            )
+                (session_id, message_id, error_code, error_type, error_message, suggestion, stack_trace),
+            ) as cursor:
+                inserted_id = cursor.lastrowid
             await conn.execute(
                 "UPDATE sessions SET total_errors = total_errors + 1 WHERE id = ?",
                 (session_id,),
             )
             await conn.commit()
+            return inserted_id if inserted_id is not None else -1
         except Exception as e:
             logger.warning("Failed to log error: %s", e)
+            return -1
 
     async def close_session(self, session_id: int, status: str) -> None:
         """Mark a session as completed or errored, updating ended_at timestamps."""
