@@ -10,6 +10,8 @@ This document describes all command line subcommands provided by `mcp-debugger`,
 *   `tools`: Show discovered tools.
 *   `errors`: List and filter classified errors from a session.
 *   `validate`: Verify spec compliance on live servers or historical logs.
+*   `stats`: Display a statistical performance and reliability dashboard for a session.
+*   `compare`: Compare statistics and performance deltas between two sessions.
 
 ---
 
@@ -111,3 +113,66 @@ mcp-debugger errors 5 --category tool_execution
 ```bash
 mcp-debugger errors 5 --json
 ```
+
+---
+
+## The `stats` Command
+
+The `stats` command aggregates and displays statistical reports of session performance, message sizes, tool call counts, latency trends, and category error distributions.
+
+### Usage Options
+
+```bash
+mcp-debugger stats [SESSION_ID] [OPTIONS]
+```
+
+*   `[SESSION_ID]`: The recorded session ID to calculate statistics for (required).
+*   `--limit <number>`: Limit the number of top active tools shown (default: 10).
+*   `--json`: Output raw aggregated stats as JSON.
+*   `--output <file>`: Write the report to a file (Markdown or JSON depending on the extension).
+
+### Examples
+
+#### 1. Visual single-session dashboard
+```bash
+mcp-debugger stats 5
+```
+
+#### 2. Limit top tools shown
+```bash
+mcp-debugger stats 5 --limit 3
+```
+
+#### 3. Write Markdown report to a file
+```bash
+mcp-debugger stats 5 --output report.md
+```
+
+---
+
+## The `compare` Command
+
+The `compare` command calculates deltas (differences) between two debugging sessions. This is ideal for testing regressions in latency, error rates, message sizes, and detecting newly introduced or missing tool calls.
+
+### Usage Options
+
+```bash
+mcp-debugger compare [SESSION_ID_A] [SESSION_ID_B] [OPTIONS]
+```
+
+*   `[SESSION_ID_A]`: The baseline session (old).
+*   `[SESSION_ID_B]`: The target session (new).
+*   `--json`: Output raw comparison statistics as a JSON payload.
+
+### Examples
+
+#### 1. Compare two sessions
+```bash
+mcp-debugger compare 5 6
+```
+
+#### 2. Compare sessions outputting JSON
+```bash
+mcp-debugger compare 5 6 --json
+```
+

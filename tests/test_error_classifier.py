@@ -19,6 +19,7 @@ def test_error_classifier_jsonrpc_errors() -> None:
     cat, msg, sug = res
     assert cat == "protocol"
     assert "Method not found" in msg
+    assert sug is not None
     assert "spelling" in sug.lower()
 
     # Code -32602: Invalid params
@@ -31,6 +32,7 @@ def test_error_classifier_jsonrpc_errors() -> None:
     cat, msg, sug = res
     assert cat == "protocol"
     assert "Invalid params" in msg
+    assert sug is not None
     assert "arguments" in sug.lower()
 
     # Code -32001: Server-side tool execution error
@@ -43,6 +45,7 @@ def test_error_classifier_jsonrpc_errors() -> None:
     cat, msg, sug = res
     assert cat == "tool_execution"
     assert "Tool execution crashed" in msg
+    assert sug is not None
     assert "details" in sug.lower()
 
 
@@ -58,6 +61,7 @@ def test_error_classifier_heuristics() -> None:
     assert res is not None
     cat, msg, sug = res
     assert cat == "timeout"
+    assert sug is not None
     assert "timed out" in sug.lower()
 
     # Connection heuristic
@@ -69,6 +73,7 @@ def test_error_classifier_heuristics() -> None:
     assert res is not None
     cat, msg, sug = res
     assert cat == "connection"
+    assert sug is not None
     assert "Connection lost" in sug
 
 
@@ -90,6 +95,7 @@ def test_error_classifier_tool_failures() -> None:
     cat, msg, sug = res
     assert cat == "tool_execution"
     assert "File not found" in msg
+    assert sug is not None
     assert "permissions" in sug.lower()
 
     # Successful JSON-RPC but tool isError=True with permission denied
@@ -107,4 +113,5 @@ def test_error_classifier_tool_failures() -> None:
     cat2, msg2, sug2 = res2
     assert cat2 == "tool_execution"
     assert "Permission denied" in msg2
+    assert sug2 is not None
     assert "access rights" in sug2.lower()

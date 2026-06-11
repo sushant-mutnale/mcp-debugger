@@ -19,6 +19,12 @@ from rich.text import Text
 from mcp_debugger.proxy.stdio_proxy import StdioProxy
 from mcp_debugger.storage.database import Database
 from mcp_debugger.protocol.error_classifier import ErrorClassifier
+from mcp_debugger.analytics import (
+    aggregate_session_stats,
+    compare_sessions_stats,
+    generate_sparkline,
+    generate_bar_chart,
+)
 
 app = typer.Typer(help="MCP proxy debugger – inspect, record, validate, and replay MCP sessions")
 console = Console()
@@ -1061,6 +1067,380 @@ def tools(
             console.print(table)
 
         await db.close()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
+def generate_markdown_report(stats_data: Any, limit: int) -> str:
+    duration_str = "N/A"
+    if stats_data.duration_seconds is not None:
+        m, s = divmod(stats_data.duration_seconds, 60)
+        duration_str = f"{m}m {s}s" if m > 0 else f"{s}s"
+
+    lines = [
+        f"# Session Statistics Report - Session #{stats_data.session_id}",
+        "",
+        f"- **Friendly Name**: {stats_data.friendly_name or '—'}",
+        f"- **Server Command**: `{stats_data.server_command}`",
+        f"- **Status**: {stats_data.status}",
+        f"- **Duration**: {duration_str}",
+        f"- **Total Messages**: {stats_data.total_messages} ({stats_data.client_to_server_count} client-to-server, {stats_data.server_to_client_count} server-to-client)",
+        "",
+        "## Top Tools",
+        "| Tool | Calls | Avg Latency | Error Rate |",
+        "| :--- | :---: | :---: | :---: |",
+    ]
+    
+    for tool in stats_data.top_tools[:limit]:
+        avg_lat = f"{tool.avg_latency_ms:.1f}ms" if tool.avg_latency_ms is not None else "—"
+        err_rate_str = f"{tool.error_rate * 100:.0f}%"
+        if tool.errors_count > 0:
+            err_rate_str += f" ({tool.errors_count} error{'s' if tool.errors_count > 1 else ''})"
+        lines.append(f"| {tool.name} | {tool.calls} | {avg_lat} | {err_rate_str} |")
+
+    lines.extend([
+        "",
+        "## Latency Metrics",
+        f"- **Min Latency**: {f'{stats_data.latency_min:.1f}ms' if stats_data.latency_min is not None else 'N/A'}",
+        f"- **Max Latency**: {f'{stats_data.latency_max:.1f}ms' if stats_data.latency_max is not None else 'N/A'}",
+        f"- **Avg Latency**: {f'{stats_data.latency_avg:.1f}ms' if stats_data.latency_avg is not None else 'N/A'}",
+        "",
+        "## Errors by Category",
+    ])
+    
+    if not stats_data.errors_by_category:
+        lines.append("No errors recorded.")
+    else:
+        for cat, count in stats_data.errors_by_category.items():
+            lines.append(f"- **{cat}**: {count}")
+
+    lines.extend([
+        "",
+        "## Method Distribution",
+        "| Method | Count | Percentage |",
+        "| :--- | :---: | :---: |",
+    ])
+    
+    total_methods = sum(stats_data.method_distribution.values())
+    for method, count in sorted(stats_data.method_distribution.items(), key=lambda x: x[1], reverse=True):
+        pct = (count / total_methods) * 100 if total_methods > 0 else 0.0
+        lines.append(f"| {method} | {count} | {pct:.1f}% |")
+
+    return "\n".join(lines)
+
+
+@app.command(name="stats")
+def stats(
+    session_id: int = typer.Argument(..., help="The ID of the session to view statistics for"),
+    limit: int = typer.Option(
+        10,
+        "--limit",
+        help="Number of top tools to show",
+    ),
+    json_mode: bool = typer.Option(
+        False,
+        "--json",
+        help="Output raw statistics as JSON",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Write report to a file (Markdown or JSON)",
+    ),
+) -> None:
+    """Display a comprehensive statistical dashboard for a single session."""
+    async def _run() -> None:
+        db = Database()
+        try:
+            await db.connect()
+        except Exception as e:
+            console.print(f"[red]Error connecting to database: {e}[/red]")
+            sys.exit(1)
+
+        try:
+            stats_data = await aggregate_session_stats(db, session_id)
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            await db.close()
+            sys.exit(1)
+        except Exception as e:
+            console.print(f"[red]Error aggregating statistics: {e}[/red]")
+            await db.close()
+            sys.exit(1)
+
+        await db.close()
+
+        # Handle --json mode
+        if json_mode:
+            stats_json = stats_data.model_dump_json(indent=2)
+            print(stats_json)
+            if output:
+                try:
+                    Path(output).write_text(stats_json, encoding="utf-8")
+                except Exception as e:
+                    console.print(f"[red]Error writing to output file: {e}[/red]")
+            return
+
+        # Handle file output if specified (and not in JSON mode)
+        if output:
+            try:
+                out_path = Path(output)
+                if out_path.suffix == ".json":
+                    out_path.write_text(stats_data.model_dump_json(indent=2), encoding="utf-8")
+                else:
+                    # Generate markdown report
+                    md = generate_markdown_report(stats_data, limit)
+                    out_path.write_text(md, encoding="utf-8")
+            except Exception as e:
+                console.print(f"[red]Error writing output file: {e}[/red]")
+
+        # RENDER TO TERMINAL
+        # Session Header Panel
+        status_style = "green" if stats_data.status == "completed" else ("red" if stats_data.status == "error" else "yellow")
+        
+        duration_str = "N/A"
+        if stats_data.duration_seconds is not None:
+            m, s = divmod(stats_data.duration_seconds, 60)
+            duration_str = f"{m}m {s}s" if m > 0 else f"{s}s"
+
+        header_lines = [
+            f"Server: [cyan]{stats_data.server_command}[/cyan]",
+            f"Status: [{status_style}]{stats_data.status}[/{status_style}]",
+            f"Started: {stats_data.started_at or 'N/A'} | Ended: {stats_data.ended_at or 'Ongoing'} | Duration: {duration_str}",
+            f"Messages: {stats_data.total_messages} total ({stats_data.client_to_server_count} → server, {stats_data.server_to_client_count} ← client)",
+        ]
+        
+        title_friendly = f" - \"{stats_data.friendly_name}\"" if stats_data.friendly_name else ""
+        console.print(
+            Panel(
+                "\n".join(header_lines),
+                title=f"Session #{stats_data.session_id}{title_friendly}",
+                border_style="blue",
+                safe_box=True,
+            )
+        )
+
+        # Top Tools Table
+        console.print("\n📊 [bold]Top Tools[/bold]")
+        if not stats_data.top_tools:
+            console.print("No tools called in this session.")
+        else:
+            table = Table(border_style="magenta")
+            table.add_column("Tool", style="cyan bold")
+            table.add_column("Calls", justify="right")
+            table.add_column("Avg Latency", justify="right")
+            table.add_column("Error Rate", justify="right")
+
+            for tool in stats_data.top_tools[:limit]:
+                avg_lat = f"{tool.avg_latency_ms:.1f}ms" if tool.avg_latency_ms is not None else "—"
+                err_rate_val = tool.error_rate * 100
+                err_rate_str = f"{err_rate_val:.0f}%"
+                if tool.errors_count > 0:
+                    err_rate_str += f" ({tool.errors_count} error{'s' if tool.errors_count > 1 else ''})"
+                err_style = "red" if tool.errors_count > 0 else "green"
+                
+                table.add_row(
+                    tool.name,
+                    str(tool.calls),
+                    avg_lat,
+                    f"[{err_style}]{err_rate_str}[/{err_style}]",
+                )
+            console.print(table)
+
+        # Latency Trend
+        console.print("\n📈 [bold]Latency Trend[/bold] (response time over time)")
+        if not stats_data.latency_trend:
+            console.print("No latency data available.")
+        else:
+            spark = generate_sparkline(stats_data.latency_trend, width=30)
+            min_l = f"{stats_data.latency_min:.1f}ms" if stats_data.latency_min is not None else "N/A"
+            max_l = f"{stats_data.latency_max:.1f}ms" if stats_data.latency_max is not None else "N/A"
+            avg_l = f"{stats_data.latency_avg:.1f}ms" if stats_data.latency_avg is not None else "N/A"
+            console.print(f"{spark} (min {min_l}, max {max_l}, avg {avg_l})")
+
+        # Errors by Category
+        console.print("\n⚠️ [bold]Errors by Category[/bold]")
+        if not stats_data.errors_by_category:
+            console.print("No errors recorded.")
+        else:
+            err_chart = generate_bar_chart(stats_data.errors_by_category, max_width=20)
+            for label, count, pct, bar_str in err_chart:
+                console.print(f"{label}: {count} [red]{bar_str}[/red] ({pct*100:.0f}%)")
+
+        # Method Distribution
+        console.print("\n🔁 [bold]Method Distribution[/bold]")
+        if not stats_data.method_distribution:
+            console.print("No methods recorded.")
+        else:
+            method_chart = generate_bar_chart(stats_data.method_distribution, max_width=20)
+            for label, count, pct, bar_str in method_chart:
+                console.print(f"{label}: {count} [blue]{bar_str}[/blue] ({pct*100:.0f}%)")
+
+        # Error Trend Sparkline
+        console.print("\n📈 [bold]Error Trend[/bold] (error density over time)")
+        if not stats_data.error_trend:
+            console.print("No responses recorded to track errors.")
+        else:
+            err_spark = generate_sparkline([float(x) for x in stats_data.error_trend], width=30)
+            total_err = sum(stats_data.errors_by_category.values())
+            console.print(f"{err_spark} ({total_err} total errors)")
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
+@app.command(name="compare")
+def compare(
+    session_id_a: int = typer.Argument(..., help="The ID of the baseline session (old)"),
+    session_id_b: int = typer.Argument(..., help="The ID of the target session to compare against (new)"),
+    json_mode: bool = typer.Option(
+        False,
+        "--json",
+        help="Output raw comparison statistics as JSON",
+    ),
+) -> None:
+    """Highlight differences between two debugging sessions."""
+    async def _run() -> None:
+        db = Database()
+        try:
+            await db.connect()
+        except Exception as e:
+            console.print(f"[red]Error connecting to database: {e}[/red]")
+            sys.exit(1)
+
+        try:
+            stats_a = await aggregate_session_stats(db, session_id_a)
+            stats_b = await aggregate_session_stats(db, session_id_b)
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            await db.close()
+            sys.exit(1)
+        except Exception as e:
+            console.print(f"[red]Error aggregating session statistics: {e}[/red]")
+            await db.close()
+            sys.exit(1)
+
+        await db.close()
+
+        comparison = compare_sessions_stats(stats_a, stats_b)
+
+        if json_mode:
+            print(comparison.model_dump_json(indent=2))
+            return
+
+        # RENDER COMPARISON TO TERMINAL
+        console.print(f"[bold]Comparing session #{session_id_a} (old) vs #{session_id_b} (new)[/bold]\n")
+
+        # Duration change
+        dur_a_str = f"{stats_a.duration_seconds}s" if stats_a.duration_seconds is not None else "N/A"
+        dur_b_str = f"{stats_b.duration_seconds}s" if stats_b.duration_seconds is not None else "N/A"
+        
+        dur_color = "white"
+        if comparison.duration_change_pct is not None:
+            if comparison.duration_change_pct < 0:
+                dur_color = "green"
+            elif comparison.duration_change_pct > 0:
+                dur_color = "red"
+        
+        console.print(f"Duration: {dur_a_str} → {dur_b_str} ([{dur_color}]{comparison.duration_change_str}[/{dur_color}])")
+
+        # Messages change
+        msg_diff_str = f"{comparison.messages_change_abs:+d} messages" if comparison.messages_change_abs != 0 else "no change"
+        console.print(f"Total messages: {comparison.messages_a} → {comparison.messages_b} ({msg_diff_str})\n")
+
+        # Tool Call Changes Table
+        console.print("📊 [bold]Tool Call Changes[/bold]")
+        if not comparison.tool_changes:
+            console.print("No tool call changes recorded.")
+        else:
+            table = Table(border_style="magenta")
+            table.add_column("Tool", style="cyan bold")
+            table.add_column("Old Calls", justify="right")
+            table.add_column("New Calls", justify="right")
+            table.add_column("Change", justify="right")
+            table.add_column("Avg Latency (Old → New)", justify="right")
+
+            for tc in comparison.tool_changes:
+                # Color code change string
+                if "new" in tc.change_str:
+                    change_style = "green bold"
+                elif "removed" in tc.change_str:
+                    change_style = "red bold"
+                elif "+" in tc.change_str:
+                    change_style = "blue"
+                elif "-" in tc.change_str:
+                    change_style = "yellow"
+                else:
+                    change_style = "white"
+
+                lat_a = f"{tc.avg_latency_a:.1f}ms" if tc.avg_latency_a is not None else "—"
+                lat_b = f"{tc.avg_latency_b:.1f}ms" if tc.avg_latency_b is not None else "—"
+                
+                lat_change_str = ""
+                if tc.avg_latency_change_pct is not None:
+                    if tc.avg_latency_change_pct < 0:
+                        lat_change_str = f" [green](↓ {abs(tc.avg_latency_change_pct):.0f}% faster)[/green]"
+                    elif tc.avg_latency_change_pct > 0:
+                        lat_change_str = f" [red](↑ {abs(tc.avg_latency_change_pct):.0f}% slower)[/red]"
+                
+                table.add_row(
+                    tc.name,
+                    str(tc.calls_a),
+                    str(tc.calls_b),
+                    f"[{change_style}]{tc.change_str}[/{change_style}]",
+                    f"{lat_a} → {lat_b}{lat_change_str}",
+                )
+            console.print(table)
+
+        # Error Rate Change
+        console.print("\n⚠️ [bold]Error Rate Change[/bold]")
+        err_color = "white"
+        if "improvement" in comparison.error_rate_change_str:
+            err_color = "green"
+        elif "regression" in comparison.error_rate_change_str:
+            err_color = "red"
+        
+        console.print(
+            f"Old: {comparison.error_rate_a:.1f}% ({comparison.errors_a} errors) → "
+            f"New: {comparison.error_rate_b:.1f}% ({comparison.errors_b} errors) "
+            f"([{err_color}]{comparison.error_rate_change_str}[/{err_color}])\n"
+        )
+
+        # Dynamic Summary statement
+        summary_parts = []
+        if comparison.duration_change_pct is not None and comparison.duration_change_pct < -5:
+            summary_parts.append("is faster")
+        elif comparison.duration_change_pct is not None and comparison.duration_change_pct > 5:
+            summary_parts.append("is slower")
+
+        if comparison.errors_b < comparison.errors_a:
+            summary_parts.append("has fewer errors")
+        elif comparison.errors_b > comparison.errors_a:
+            summary_parts.append("has more errors")
+
+        summary_text = ""
+        if summary_parts:
+            summary_text = f"Session #{session_id_b} " + " and ".join(summary_parts) + "."
+        else:
+            summary_text = f"Session #{session_id_b} has similar performance and error rates compared to #{session_id_a}."
+
+        # Add warnings about removed tools or slower tools
+        warnings = []
+        for tc in comparison.tool_changes:
+            if "removed" in tc.change_str:
+                warnings.append(f"tool '{tc.name}' was removed")
+            elif tc.avg_latency_change_pct is not None and tc.avg_latency_change_pct > 20:
+                warnings.append(f"tool '{tc.name}' got significantly slower (+{tc.avg_latency_change_pct:.0f}%)")
+
+        if warnings:
+            summary_text += " [yellow]Verify changes: " + ", ".join(warnings) + ".[/yellow]"
+
+        console.print(f"💡 [bold]Summary:[/bold] {summary_text}")
 
     try:
         asyncio.run(_run())

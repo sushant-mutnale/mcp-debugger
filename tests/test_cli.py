@@ -768,3 +768,108 @@ def test_validate_live_server_nonexistent() -> None:
     assert result.exit_code == 1
     assert "server_startup" in result.stdout or "server_connection" in result.stdout
 
+
+def test_stats_command(mock_db_path: str) -> None:
+    """Verify stats command runs and aggregates statistics."""
+    async def populate() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        session_id = await db.create_session("my-session")
+        
+        # Log tools/call request
+        await db.log_message(
+            session_id=session_id,
+            direction="client_to_server",
+            message={
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "tools/call",
+                "params": {"name": "hello_tool"}
+            }
+        )
+        # Log response
+        await db.log_message(
+            session_id=session_id,
+            direction="server_to_client",
+            message={
+                "jsonrpc": "2.0",
+                "id": "1",
+                "result": {"isError": True, "content": []}
+            }
+        )
+        
+        # Log an error
+        await db.log_error(
+            session_id=session_id,
+            message_id=None,
+            error_type="protocol",
+            error_message="Fail",
+            suggestion="Fix it",
+            error_code=-1,
+        )
+        
+        await db.close()
+
+    asyncio.run(populate())
+
+    # Regular stats output
+    result = runner.invoke(app, ["stats", "1"])
+    assert result.exit_code == 0
+    assert "Session #1" in result.stdout
+    assert "Top Tools" in result.stdout
+    assert "hello_tool" in result.stdout
+    assert "Errors by Category" in result.stdout
+    assert "Method Distribution" in result.stdout
+    assert "Error Trend" in result.stdout
+
+    # JSON mode
+    result_json = runner.invoke(app, ["stats", "1", "--json"])
+    assert result_json.exit_code == 0
+    parsed = json.loads(result_json.stdout)
+    assert parsed["session_id"] == 1
+    assert parsed["errors_by_category"]["protocol"] == 1
+
+
+def test_compare_command(mock_db_path: str) -> None:
+    """Verify compare command runs and calculates session differences."""
+    async def populate() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        
+        # Session A
+        session_a = await db.create_session("sess-a")
+        await db.log_message(
+            session_id=session_a,
+            direction="client_to_server",
+            message={"jsonrpc": "2.0", "id": "1", "method": "tools/call", "params": {"name": "tool-a"}}
+        )
+        await db.close_session(session_a, "completed")
+        
+        # Session B
+        session_b = await db.create_session("sess-b")
+        await db.log_message(
+            session_id=session_b,
+            direction="client_to_server",
+            message={"jsonrpc": "2.0", "id": "1", "method": "tools/call", "params": {"name": "tool-b"}}
+        )
+        await db.close_session(session_b, "completed")
+        
+        await db.close()
+
+    asyncio.run(populate())
+
+    result = runner.invoke(app, ["compare", "1", "2"])
+    assert result.exit_code == 0
+    assert "Comparing session #1 (old) vs #2 (new)" in result.stdout
+    assert "Tool Call Changes" in result.stdout
+    assert "tool-a" in result.stdout
+    assert "tool-b" in result.stdout
+
+    # JSON mode
+    result_json = runner.invoke(app, ["compare", "1", "2", "--json"])
+    assert result_json.exit_code == 0
+    parsed = json.loads(result_json.stdout)
+    assert parsed["session_id_a"] == 1
+    assert parsed["session_id_b"] == 2
+
+
