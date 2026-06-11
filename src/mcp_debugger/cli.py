@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
+import io
 import json
 import sqlite3
 import sys
@@ -1441,6 +1442,135 @@ def compare(
             summary_text += " [yellow]Verify changes: " + ", ".join(warnings) + ".[/yellow]"
 
         console.print(f"💡 [bold]Summary:[/bold] {summary_text}")
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
+@app.command(name="export")
+def export(
+    session_id: int = typer.Argument(..., help="The ID of the session to export"),
+    format: str = typer.Option(
+        "json",
+        "--format",
+        help="Export format: json | markdown | otlp",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Write to file instead of stdout (json / markdown formats)",
+    ),
+    pretty: bool = typer.Option(
+        False,
+        "--pretty",
+        help="Pretty-print JSON / indent markdown raw blocks",
+    ),
+    include_raw: bool = typer.Option(
+        False,
+        "--include-raw",
+        help="Include raw message JSON in markdown <details> blocks",
+    ),
+    endpoint: str = typer.Option(
+        "http://localhost:4317",
+        "--endpoint",
+        help="OTLP collector endpoint (otlp format only)",
+    ),
+    insecure: bool = typer.Option(
+        True,
+        "--insecure",
+        help="Disable TLS (for local OTLP testing)",
+    ),
+    service_name: str = typer.Option(
+        "mcp-debugger",
+        "--service-name",
+        help="Service name for OTLP traces",
+    ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit",
+        help="Max messages to export (useful for large sessions with otlp)",
+    ),
+) -> None:
+    """Export session data as JSON, Markdown, or OpenTelemetry (OTLP) traces."""
+
+    fmt = format.lower().strip()
+    if fmt not in {"json", "markdown", "otlp"}:
+        console.print(f"[red]Error: unknown format '{format}'. Choose json, markdown, or otlp.[/red]")
+        sys.exit(1)
+
+    async def _run() -> None:
+        db = Database()
+        try:
+            await db.connect()
+        except Exception as e:
+            console.print(f"[red]Error connecting to database: {e}[/red]")
+            sys.exit(1)
+
+        session = await db.get_session(session_id)
+        if not session:
+            console.print(f"[red]Error: Session #{session_id} not found.[/red]")
+            await db.close()
+            sys.exit(1)
+
+        messages = await db.get_messages(session_id, limit=limit)
+        tools = await db.get_tools(session_id)
+        errors = await db.get_errors(session_id)
+
+        try:
+            from mcp_debugger.analytics import aggregate_session_stats as _agg
+            stats = await _agg(db, session_id)
+        except Exception as e:
+            console.print(f"[red]Error computing session stats: {e}[/red]")
+            await db.close()
+            sys.exit(1)
+
+        await db.close()
+
+        # ---- OTLP -----------------------------------------------------------
+        if fmt == "otlp":
+            try:
+                from mcp_debugger.exporters.otlp_exporter import OTLPExporter
+            except ImportError as exc:
+                console.print(f"[red]{exc}[/red]")
+                sys.exit(1)
+            try:
+                exporter_otlp = OTLPExporter(
+                    endpoint=endpoint,
+                    insecure=insecure,
+                    service_name=service_name,
+                    limit=limit,
+                )
+                span_count = exporter_otlp.export(dict(session), messages)
+                console.print(
+                    f"[green]Exported {span_count} span(s) to {endpoint}[/green]"
+                )
+            except Exception as e:
+                console.print(f"[yellow]Warning: OTLP export failed: {e}[/yellow]")
+            return
+
+        # ---- JSON / Markdown ------------------------------------------------
+        if fmt == "json":
+            from mcp_debugger.exporters.json_exporter import JSONExporter
+            exporter_obj: Any = JSONExporter(pretty=pretty, include_raw=include_raw)
+        else:
+            from mcp_debugger.exporters.markdown_exporter import MarkdownExporter
+            exporter_obj = MarkdownExporter(include_raw=include_raw, pretty=pretty)
+
+        if output:
+            out_path = Path(output)
+            try:
+                with out_path.open("w", encoding="utf-8") as f:
+                    exporter_obj.export(dict(session), messages, tools, errors, stats, f)
+                console.print(f"[green]Exported to {out_path.resolve()}[/green]")
+            except Exception as e:
+                console.print(f"[red]Error writing to {output}: {e}[/red]")
+                sys.exit(1)
+        else:
+            buf = io.StringIO()
+            exporter_obj.export(dict(session), messages, tools, errors, stats, buf)
+            print(buf.getvalue())
 
     try:
         asyncio.run(_run())

@@ -12,6 +12,7 @@ This document describes all command line subcommands provided by `mcp-debugger`,
 *   `validate`: Verify spec compliance on live servers or historical logs.
 *   `stats`: Display a statistical performance and reliability dashboard for a session.
 *   `compare`: Compare statistics and performance deltas between two sessions.
+*   `export`: Export session data as JSON, Markdown, or OpenTelemetry (OTLP) traces.
 
 ---
 
@@ -171,8 +172,73 @@ mcp-debugger compare [SESSION_ID_A] [SESSION_ID_B] [OPTIONS]
 mcp-debugger compare 5 6
 ```
 
-#### 2. Compare sessions outputting JSON
 ```bash
 mcp-debugger compare 5 6 --json
 ```
+
+---
+
+## The `export` Command
+
+The `export` command converts a recorded session into one of three formats:
+
+- **JSON** – machine-readable, structured output for CI/CD pipelines and scripts.
+- **Markdown** – human-readable report for documentation, code reviews, or email.
+- **OTLP** – OpenTelemetry traces sent to a Jaeger / Grafana Tempo / DataDog collector.
+
+### Usage
+
+```bash
+mcp-debugger export <session_id> --format {json,markdown,otlp} [OPTIONS]
+```
+
+### Options
+
+| Option | Applies to | Description |
+| :----- | :--------- | :---------- |
+| `--format` | all | `json` (default), `markdown`, or `otlp` |
+| `--output FILE` | json, markdown | Write to file instead of stdout |
+| `--pretty` | json, markdown | Indent JSON / pretty-print raw blocks |
+| `--include-raw` | markdown | Add `<details>` JSON blocks per message |
+| `--endpoint URL` | otlp | OTLP endpoint (default `http://localhost:4317`) |
+| `--insecure` | otlp | Disable TLS (for local testing) |
+| `--service-name NAME` | otlp | Service name in traces (default `mcp-debugger`) |
+| `--limit N` | all | Export only the first N messages |
+
+### Examples
+
+#### 1. Export as JSON to stdout
+```bash
+mcp-debugger export 5 --format json
+```
+
+#### 2. Export as pretty JSON to a file
+```bash
+mcp-debugger export 5 --format json --pretty --output session.json
+```
+
+#### 3. Generate a Markdown report
+```bash
+mcp-debugger export 5 --format markdown --output report.md
+```
+
+#### 4. Generate a Markdown report with full raw message JSON
+```bash
+mcp-debugger export 5 --format markdown --include-raw --output report.md
+```
+
+#### 5. Send traces to a local Jaeger instance
+```bash
+docker run -p 4317:4317 jaegertracing/all-in-one
+mcp-debugger export 5 --format otlp --endpoint http://localhost:4317
+```
+
+### Installing OTLP support
+
+The base package does not require OpenTelemetry libraries.  Install the optional group:
+
+```bash
+pip install 'mcp-debugger[export]'
+```
+
 
