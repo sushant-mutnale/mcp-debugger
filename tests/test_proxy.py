@@ -188,7 +188,10 @@ async def test_proxy_server_crash(temp_db: Database) -> None:
 
 @pytest.mark.asyncio
 async def test_proxy_malformed_json(temp_db: Database, capsys: pytest.CaptureFixture[str]) -> None:
-    """Verify malformed JSON does not crash proxy but triggers warning logs."""
+    """Verify malformed JSON is handled correctly:
+    - Client non-JSON: warning to stderr + stored in errors table.
+    - Server non-JSON: log to stderr + stored in server_logs, NOT forwarded to stdout.
+    """
     session_id = await temp_db.create_session("mock-server")
     event = asyncio.Event()
 
@@ -216,20 +219,29 @@ async def test_proxy_malformed_json(temp_db: Database, capsys: pytest.CaptureFix
         exit_code = await proxy.run()
         assert exit_code == 0
 
-    # Ensure stdout still received the raw line
     captured = capsys.readouterr()
-    assert "invalid server json" in captured.out
-    assert "warning" in captured.err
 
-    # Ensure warnings printed to stderr contain indicators
+    # Server non-JSON must NOT reach client stdout
+    assert "invalid server json" not in captured.out
+
+    # Server non-JSON must appear in stderr as a server log line
+    assert "server log" in captured.err
+    assert "invalid server json" in captured.err
+
+    # Client non-JSON still triggers the existing warning in stderr
     assert "Intercepted non-JSON line" in captured.err
 
-    # Check that error logs are stored in the database
+    # Client non-JSON → stored in errors table
     errors = await temp_db.get_errors(session_id)
-    assert len(errors) == 2
+    assert len(errors) == 1
     assert errors[0]["error_type"] == "protocol"
     assert "invalid client json" in errors[0]["stack_trace"]
-    assert "invalid server json" in errors[1]["stack_trace"]
+
+    # Server non-JSON → stored in server_logs table (not errors)
+    server_logs = await temp_db.get_server_logs(session_id)
+    assert len(server_logs) == 1
+    assert "invalid server json" in server_logs[0]["raw_text"]
+    assert server_logs[0]["source"] == "server_stdout"
 
 
 @pytest.mark.asyncio

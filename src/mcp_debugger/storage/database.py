@@ -163,6 +163,22 @@ class Database:
             await conn.execute("ALTER TABLE errors ADD COLUMN suggestion TEXT;")
             await conn.commit()
 
+        # Table: server_logs – raw non-JSON lines written by server to stdout
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS server_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                source TEXT NOT NULL DEFAULT 'server_stdout',
+                raw_text TEXT NOT NULL,
+                logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_server_logs_session_id ON server_logs(session_id);"
+        )
+
         # Indexes
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);"
@@ -385,6 +401,37 @@ class Database:
             await conn.commit()
         except Exception as e:
             logger.warning("Failed to close session: %s", e)
+
+    async def log_raw_line(
+        self,
+        session_id: int,
+        raw_text: str,
+        source: str = "server_stdout",
+    ) -> None:
+        """Store a raw non-JSON line (e.g. a server debug log) in the server_logs table."""
+        try:
+            conn = await self._get_conn()
+            await conn.execute(
+                "INSERT INTO server_logs (session_id, source, raw_text) VALUES (?, ?, ?)",
+                (session_id, source, raw_text[:4096]),  # cap at 4 KB
+            )
+            await conn.commit()
+        except Exception as e:
+            logger.warning("Failed to log raw line: %s", e)
+
+    async def get_server_logs(self, session_id: int) -> List[Dict[str, Any]]:
+        """Retrieve all raw server log lines for a session."""
+        try:
+            conn = await self._get_conn()
+            async with conn.execute(
+                "SELECT * FROM server_logs WHERE session_id = ? ORDER BY logged_at ASC",
+                (session_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.warning("Failed to get server logs: %s", e)
+            return []
 
     async def get_session(self, session_id: int) -> Optional[Dict[str, Any]]:
         """Retrieve details of a specific session."""

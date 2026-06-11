@@ -153,12 +153,36 @@ class StdioProxy:
 
                 line = line_bytes.decode("utf-8")
 
-                # Process and log message
-                await self._handle_message(line, direction="server_to_client")
+                # Check if the line is valid JSON before forwarding.
+                # Non-JSON lines (e.g. Node.js debug logs written to stdout) must NOT
+                # be forwarded to the client – that would corrupt its JSON-RPC stream.
+                stripped = line.strip()
+                if stripped:
+                    try:
+                        json.loads(stripped)
+                        is_json = True
+                    except json.JSONDecodeError:
+                        is_json = False
+                else:
+                    is_json = True  # blank lines are harmless; forward them
 
-                # Forward raw bytes to client standard output
-                sys.stdout.write(line)
-                sys.stdout.flush()
+                if is_json:
+                    # Process, log, and forward valid JSON-RPC messages
+                    await self._handle_message(line, direction="server_to_client")
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                else:
+                    # Non-JSON: print to stderr so the user can see it, but do NOT
+                    # forward to client stdout and do NOT record as a protocol error.
+                    print(
+                        f"[mcp-debugger] server log: {stripped[:500]}",
+                        file=sys.stderr,
+                    )
+                    await self.database.log_raw_line(
+                        session_id=self.session_id,
+                        source="server_stdout",
+                        raw_text=stripped,
+                    )
             except Exception as e:
                 logger.warning("Error reading from server standard output: %s", e)
                 break
