@@ -52,10 +52,10 @@ SERVERS: Dict[str, Dict[str, Any]] = {
         "step_timeout": 15.0,
     },
     "fetch": {
-        "command": "npx -y @modelcontextprotocol/server-fetch",
+        "command": "uvx mcp-server-fetch",
         "env_required": [],
         "tool_args": {
-            "fetch": {"url": "https://httpbin.org/get"},
+            "fetch": {"url": "https://example.com"},
         },
         "startup_wait": 15.0,
         "step_timeout": 30.0,
@@ -199,6 +199,9 @@ async def run_server_test(
 
     assert process.stdin and process.stdout
 
+    # Increase StreamReader limit to 10MB to handle large tool outputs and schemas
+    setattr(process.stdout, "_limit", 10 * 1024 * 1024)
+
     req_id = 1
 
     async def send(data: bytes) -> None:
@@ -285,7 +288,12 @@ async def run_server_test(
             else:
                 tool_result = call_resp.get("result", {})
                 is_err = isinstance(tool_result, dict) and tool_result.get("isError", False)
-                result.tool_calls[tool_name] = "FAIL (isError=true)" if is_err else "PASS"
+                if is_err:
+                    err_content = tool_result.get("content", [])
+                    result.tool_calls[tool_name] = "FAIL (isError=true)"
+                    result.issues.append(f"Tool {tool_name} returned isError=true. Content: {err_content}")
+                else:
+                    result.tool_calls[tool_name] = "PASS"
 
         # ---- All steps passed ----
         result.status = "PASS" if not any("FAIL" in v for v in result.tool_calls.values()) else "PARTIAL"

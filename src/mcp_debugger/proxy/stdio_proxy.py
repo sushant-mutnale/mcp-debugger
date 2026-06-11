@@ -91,6 +91,10 @@ class StdioProxy:
             logger.error("Failed to spawn server subprocess: %s", e)
             return 1
 
+        if self.process and self.process.stdout:
+            # Increase StreamReader limit to 10MB to handle large tool outputs and schemas
+            setattr(self.process.stdout, "_limit", 10 * 1024 * 1024)
+
         queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
