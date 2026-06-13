@@ -179,6 +179,44 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_server_logs_session_id ON server_logs(session_id);"
         )
 
+        # Table: replays
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS replays (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                target_server_command TEXT NOT NULL,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ended_at TIMESTAMP,
+                status TEXT,
+                total_messages INTEGER,
+                mismatches INTEGER
+            );
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_replays_session_id ON replays(source_session_id);"
+        )
+
+        # Table: replay_messages
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS replay_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                replay_id INTEGER NOT NULL REFERENCES replays(id) ON DELETE CASCADE,
+                original_message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                original_response_json TEXT,
+                replayed_response_json TEXT,
+                matches BOOLEAN,
+                error TEXT,
+                latency_ms REAL
+            );
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_replay_messages_replay_id ON replay_messages(replay_id);"
+        )
+
         # Indexes
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);"
@@ -593,3 +631,139 @@ class Database:
         except Exception as e:
             logger.warning("Failed to get sessions: %s", e)
             return []
+
+    async def get_replay_messages(self, session_id: int) -> List[Dict[str, Any]]:
+        """Load client requests/notifications and their matched original responses for replay."""
+        try:
+            conn = await self._get_conn()
+            query = """
+                SELECT 
+                    req.id AS req_id, 
+                    req.message_id AS req_msg_id, 
+                    req.method, 
+                    req.params, 
+                    req.message_type,
+                    resp.id AS resp_id,
+                    resp.result AS resp_result,
+                    resp.error AS resp_error
+                FROM messages req
+                LEFT JOIN messages resp ON 
+                    resp.session_id = req.session_id AND 
+                    resp.message_id = req.message_id AND 
+                    resp.direction = 'server_to_client' AND 
+                    resp.message_type = 'response'
+                WHERE req.session_id = ? AND req.direction = 'client_to_server'
+                ORDER BY req.timestamp ASC
+            """
+            async with conn.execute(query, (session_id,)) as cursor:
+                rows = await cursor.fetchall()
+                results = []
+                for row in rows:
+                    params = None
+                    if row["params"] is not None:
+                        try:
+                            params = json.loads(row["params"])
+                        except Exception:
+                            params = row["params"]
+
+                    original_response = None
+                    if row["resp_id"] is not None:
+                        # Reconstruct the original response JSON-RPC message
+                        msg_id = row["req_msg_id"]
+                        if msg_id is not None:
+                            try:
+                                msg_id = int(msg_id)
+                            except ValueError:
+                                pass
+                        original_response = {
+                            "jsonrpc": "2.0",
+                            "id": msg_id,
+                        }
+                        if row["resp_result"] is not None:
+                            try:
+                                original_response["result"] = json.loads(row["resp_result"])
+                            except Exception:
+                                original_response["result"] = row["resp_result"]
+                        if row["resp_error"] is not None:
+                            try:
+                                original_response["error"] = json.loads(row["resp_error"])
+                            except Exception:
+                                original_response["error"] = row["resp_error"]
+
+                    results.append({
+                        "original_message_id": row["req_id"],
+                        "message_id": row["req_msg_id"],
+                        "method": row["method"],
+                        "params": params,
+                        "message_type": row["message_type"],
+                        "original_response": original_response,
+                    })
+                return results
+        except Exception as e:
+            logger.warning("Failed to get replay messages: %s", e)
+            return []
+
+    async def save_replay(
+        self,
+        source_session_id: int,
+        target_server_command: str,
+        status: str,
+        total_messages: int,
+        mismatches: int,
+        messages: List[Dict[str, Any]],
+        started_at: str,
+        ended_at: str,
+    ) -> int:
+        """Save a replay run and its individual replayed messages to the database."""
+        try:
+            conn = await self._get_conn()
+            async with conn.execute(
+                """
+                INSERT INTO replays (
+                    source_session_id, target_server_command, started_at, ended_at, status, total_messages, mismatches
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source_session_id,
+                    target_server_command,
+                    started_at,
+                    ended_at,
+                    status,
+                    total_messages,
+                    mismatches,
+                ),
+            ) as cursor:
+                replay_id = cursor.lastrowid
+
+            if replay_id is not None:
+                for msg in messages:
+                    # original_response_json
+                    orig_resp = msg.get("original_response")
+                    orig_resp_str = json.dumps(orig_resp) if orig_resp is not None else None
+
+                    # replayed_response_json
+                    repl_resp = msg.get("replayed_response")
+                    repl_resp_str = json.dumps(repl_resp) if repl_resp is not None else None
+
+                    await conn.execute(
+                        """
+                        INSERT INTO replay_messages (
+                            replay_id, original_message_id, original_response_json, replayed_response_json, matches, error, latency_ms
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            replay_id,
+                            msg["original_message_id"],
+                            orig_resp_str,
+                            repl_resp_str,
+                            msg.get("matches", False),
+                            msg.get("error"),
+                            msg.get("latency_ms"),
+                        ),
+                    )
+            await conn.commit()
+            return replay_id if replay_id is not None else -1
+        except Exception as e:
+            logger.warning("Failed to save replay: %s", e)
+            return -1
+
