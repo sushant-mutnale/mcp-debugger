@@ -448,7 +448,8 @@ def inspect(
                         border_style = "green"
 
                 if err_info is not None:
-                    badge = f" | [{err_info['error_type'].upper()} ERROR]"
+                    err_type = err_info.get("error_type") or "unknown"
+                    badge = f" | [{err_type.upper()} ERROR]"
                     header.append(badge, style="red bold")
 
                 header.append(" | method: ", style="white")
