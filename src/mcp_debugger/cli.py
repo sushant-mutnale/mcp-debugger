@@ -1578,6 +1578,272 @@ def export(
         sys.exit(0)
 
 
+@app.command(name="replay")
+def replay(
+    session_id: int = typer.Argument(
+        ..., help="ID of the recorded session to replay"
+    ),
+    server: str = typer.Option(
+        ..., "--server", "-s", help="Command to launch the target server"
+    ),
+    timeout: int = typer.Option(
+        5000, "--timeout", help="Timeout in milliseconds per request-response pair"
+    ),
+    max_messages: Optional[int] = typer.Option(
+        None, "--max-messages", help="Maximum number of client messages to replay"
+    ),
+    filter_method: Optional[str] = typer.Option(
+        None, "--filter-method", help="Only replay messages with this method name"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show all messages with diffs (even matches)"
+    ),
+    json_mode: bool = typer.Option(
+        False, "--json", help="Output raw JSON report"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="Write output to a file"
+    ),
+    save: bool = typer.Option(
+        False, "--save", help="Save replay results to the replays database table"
+    ),
+    no_diff: bool = typer.Option(
+        False, "--no-diff", help="Skip detailed diff output (only show summary)"
+    ),
+) -> None:
+    """Replay client messages from a recorded session against a target server."""
+
+    def format_payload(val: Any) -> str:
+        if val is None:
+            return "None"
+        try:
+            return json.dumps(val, indent=2)
+        except Exception:
+            return str(val)
+
+    def indent_text(text: str, spaces: int = 2) -> str:
+        indent = " " * spaces
+        return "\n".join(indent + line for line in text.splitlines())
+
+    async def _run() -> None:
+        db = Database()
+        try:
+            await db.connect()
+        except Exception as e:
+            console.print(f"[red]Error connecting to database: {e}[/red]")
+            sys.exit(1)
+
+        session = await db.get_session(session_id)
+        if not session:
+            console.print(f"[red]Error: Session #{session_id} not found.[/red]")
+            await db.close()
+            sys.exit(1)
+
+        from mcp_debugger.replay.engine import ReplayEngine
+        engine = ReplayEngine(db)
+
+        # Set up progress bar if not in JSON mode and output is terminal
+        progress_bar = None
+        task_id = None
+
+        if not json_mode:
+            from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
+            progress_bar = Progress(
+                TextColumn(f"Replaying session {session_id}..."),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total} ({task.percentage:>3.0f}%)"),
+                TimeElapsedColumn(),
+                console=console,
+            )
+            progress_bar.start()
+            task_id = progress_bar.add_task("replaying", total=0)
+
+        def on_message_replayed(current: int, total: int) -> None:
+            if progress_bar and task_id is not None:
+                progress_bar.update(task_id, completed=current, total=total)
+
+        # Replay the messages
+        replay_mode = "exact"
+        message_filter = None
+        if filter_method:
+            replay_mode = "selective"
+            message_filter = [filter_method]
+
+        result = await engine.replay(
+            session_id=session_id,
+            target_server_command=server,
+            timeout_ms=timeout,
+            replay_mode=replay_mode,
+            message_filter=message_filter,
+            persist=save,
+            max_messages=max_messages,
+            on_message_replayed=on_message_replayed,
+        )
+
+        if progress_bar:
+            progress_bar.stop()
+
+        await db.close()
+
+        # Check for target server failed to start (command not found / invalid command)
+        failed_to_start = False
+        for msg in result.messages:
+            if msg.error and "Failed to start server" in msg.error:
+                failed_to_start = True
+                break
+
+        if failed_to_start:
+            # Print error and exit with code 2
+            console.print(f"[red]Error: Target server failed to start: {result.messages[0].error}[/red]")
+            sys.exit(2)
+
+        # Check if server crashed during replay
+        crashed_msg = None
+        for msg in result.messages:
+            if msg.error and ("terminated" in msg.error.lower() or "write error" in msg.error.lower()):
+                crashed_msg = msg
+                break
+
+        if crashed_msg is not None:
+            console.print(f"[red]Error: Server crashed during message #{crashed_msg.original_message_id}: {crashed_msg.error}[/red]")
+            sys.exit(2)
+
+        # Check if server timed out
+        if result.timed_out > 0:
+            # Print timeout details and exit with code 2
+            timed_out_msgs = [m for m in result.messages if m.error and "Timeout" in m.error]
+            if timed_out_msgs:
+                console.print(f"[red]Error: Server timed out during message #{timed_out_msgs[0].original_message_id}: {timed_out_msgs[0].error}[/red]")
+            sys.exit(2)
+
+        # Setup redirection for output
+        if output:
+            capture_file = io.StringIO()
+            run_console = Console(file=capture_file, force_terminal=True, color_system="truecolor")
+        else:
+            run_console = console
+
+        # Calculate counts
+        successful_matches = sum(1 for m in result.messages if m.matches)
+        mismatches = result.mismatched_responses
+        timeouts = result.timed_out
+        errors = result.failed_responses
+        duration = (result.ended_at - result.started_at).total_seconds()
+
+        if json_mode:
+            # Build and serialize JSON report
+            json_report = {
+                "session_id": session_id,
+                "source_server_command": session["server_command"],
+                "target_server_command": server,
+                "started_at": result.started_at.isoformat().replace("+00:00", "Z"),
+                "ended_at": result.ended_at.isoformat().replace("+00:00", "Z"),
+                "duration_seconds": round(duration, 2),
+                "summary": {
+                    "total": result.total_messages_replayed,
+                    "matches": successful_matches,
+                    "mismatches": mismatches,
+                    "timeouts": timeouts,
+                    "errors": errors,
+                },
+                "messages": [
+                    {
+                        "original_message_id": m.original_message_id,
+                        "method": m.method,
+                        "matched": m.matches,
+                        "diff": [d.model_dump() for d in m.diff] if m.diff else None,
+                    }
+                    for m in result.messages
+                ]
+            }
+            json_str = json.dumps(json_report, indent=2)
+            if output:
+                try:
+                    Path(output).write_text(json_str, encoding="utf-8")
+                except Exception as e:
+                    console.print(f"[red]Error writing output to {output}: {e}[/red]")
+                    sys.exit(1)
+            else:
+                print(json_str)
+        else:
+            # Terminal Output (Default)
+            summary_lines = [
+                f"Replay of Session #{session_id}",
+                f"Source server: {session['server_command']}",
+                f"Target server: {server}",
+                f"Duration: {duration:.2f} seconds",
+                "─" * 65,
+                f"Total messages replayed: {result.total_messages_replayed}",
+                f"[green]✓ Successful matches: {successful_matches}[/green]",
+                f"[red]✗ Mismatches: {mismatches}[/red]" if mismatches else f"✗ Mismatches: {mismatches}",
+                f"[yellow]⏱ Timeouts: {timeouts}[/yellow]" if timeouts else f"⏱ Timeouts: {timeouts}",
+                f"[red]❌ Errors: {errors}[/red]" if errors else f"❌ Errors: {errors}",
+            ]
+            summary_panel = Panel(
+                "\n".join(summary_lines),
+                title="Replay Summary",
+                border_style="blue",
+            )
+            run_console.print(summary_panel)
+
+            # Print messages detailed reports
+            for m in result.messages:
+                if m.matches:
+                    if verbose:
+                        run_console.print(f"[green]✓[/green] Message #{m.original_message_id}: {m.method}")
+                else:
+                    run_console.print(f"\n[red]✗[/red] Message #{m.original_message_id}: {m.method} (client → server)")
+                    if not no_diff:
+                        # Show mismatch details
+                        if m.method == "tools/call" and m.request_sent:
+                            params = m.request_sent.get("params", {})
+                            if isinstance(params, dict):
+                                tool_name = params.get("name")
+                                tool_args = params.get("arguments")
+                                if tool_name:
+                                    run_console.print(f"Tool: {tool_name}")
+                                if tool_args is not None:
+                                    run_console.print(f"Arguments: {json.dumps(tool_args)}")
+
+                        run_console.print("\nOriginal response:")
+                        run_console.print(indent_text(format_payload(m.original_response), 2))
+                        run_console.print("\nReplayed response:")
+                        run_console.print(indent_text(format_payload(m.replayed_response), 2))
+
+                        if m.diff_text:
+                            run_console.print("\nDifferences:")
+                            run_console.print(indent_text(m.diff_text, 2))
+                        run_console.print()
+
+            if no_diff:
+                mismatched_ids = [m.original_message_id for m in result.messages if not m.matches]
+                if mismatched_ids:
+                    run_console.print(f"\nMismatched Message IDs: {mismatched_ids}")
+
+            if save and result.replay_id is not None and result.replay_id != -1:
+                run_console.print(f"\nReplay saved as replay ID {result.replay_id}. Use 'mcp-debugger replay show {result.replay_id}' to view later.")
+
+            if output:
+                try:
+                    Path(output).write_text(capture_file.getvalue(), encoding="utf-8")
+                except Exception as e:
+                    console.print(f"[red]Error writing output to {output}: {e}[/red]")
+                    sys.exit(1)
+
+        # Exit codes:
+        # 0 if all responses match
+        # 1 if any mismatch (i.e. mismatches > 0)
+        if mismatches > 0:
+            sys.exit(1)
+        else:
+            sys.exit(0)
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
 def main() -> None:
     app()
 

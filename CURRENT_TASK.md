@@ -1,175 +1,202 @@
-Day 16: Diff Integration – Visualising Response Differences
-You built the core replay engine (Day 15), which can replay a session and compare original vs. replayed responses. But the output is just raw data – a JSON dump of mismatches. Developers need a beautiful, human‑readable diff to quickly understand what changed.
+Day 17: CLI Replay Command – Exposing Replay to Users
+You have the replay engine (Day 15) and diff visualisation (Day 16). Now it’s time to wrap them into a user‑friendly CLI command. Developers can now run:
 
-Day 16 adds a diff visualisation layer that:
+bash
+mcp-debugger replay <session_id> --server "new-server-command"
+and see a detailed report of which responses changed, with colour‑coded diffs, summary statistics, and an exit code suitable for CI/CD.
 
-Compares original and replayed responses semantically (not just string equality).
-
-Highlights added, removed, and changed fields.
-
-Outputs to the terminal using Rich (colour‑coded, side‑by‑side or inline diff).
-
-Optionally exports diffs as JSON for CI/CD scripts.
-
-By the end of Day 16, the replay engine will produce a DiffResult that can be rendered as a Rich panel or saved as JSON.
+By the end of Day 17, your tool will be able to regression‑test MCP servers – a game‑changer for anyone maintaining or upgrading MCP implementations.
 
 🎯 Core Objective
-Extend the replay engine with a diff module (src/mcp_debugger/replay/diff.py) that:
+Implement mcp-debugger replay command with the following features:
 
-Compares two JSON values (original response vs. replayed response) recursively.
-
-Produces a structured diff – a tree of changes (added, removed, changed, unchanged).
-
-Renders the diff as:
-
-Rich table / panel – side‑by‑side for small changes.
-
-Inline diff – showing only changed fields with colour (+ added, - removed, ~ changed).
-
-Integrates with ReplayResult so that each ReplayedMessage has a .diff property.
-
+Feature	Behaviour
+Replay a session	Load client messages from a recorded session, send them to a new server, compare responses.
+Output formats	Rich terminal report (default) or JSON (--json) for scripting.
+Diff display	Show only mismatched messages by default, with inline diffs. Use --verbose to show all messages.
+Exit code	0 if all responses match (or only warnings), 1 if any mismatch or critical error.
+Options	--server (required), --timeout, --max-messages, --filter-method, --json, --output, --verbose.
+Persistence	Optionally save replay results to the database (--save) for later review.
 Deliverables by end of day:
 
-src/mcp_debugger/replay/diff.py with compare_json(original, replayed) -> DiffNode.
+src/mcp_debugger/cli/replay_commands.py (or extend cli.py).
 
-Rich rendering function render_diff(diff_node) that outputs colour‑coded text.
+Integration with ReplayEngine and diff module.
 
-Integration with replay engine: ReplayedMessage.diff is populated.
+Rich output: summary table, per‑message diff for mismatches.
 
-Unit tests for diff logic (recursive, nested objects, arrays).
+Unit and integration tests.
 
-CLI preview – not yet a full command, but you can call from a test script.
+Documentation updated.
 
 🧠 Expected Behaviour
+1. Command Signature
+bash
+mcp-debugger replay <session_id> --server <command> [OPTIONS]
+Arguments:
 
-1. Diff Data Structure (DiffNode)
-   python
-   from enum import Enum
-   from pydantic import BaseModel
-   from typing import Any, Dict, List, Union
+session_id – ID of the recorded session to replay.
 
-class DiffType(str, Enum):
-UNCHANGED = "unchanged"
-ADDED = "added"
-REMOVED = "removed"
-CHANGED = "changed"
+Options:
 
-class DiffNode(BaseModel):
-path: str # JSONPath-like, e.g., "result.content[0].text"
-type: DiffType
-old_value: Any = None
-new_value: Any = None
-children: List['DiffNode'] = [] # for nested diffs
-Example: If original had {"result": {"status": "ok"}} and replayed has {"result": {"status": "success"}}, the diff node would be:
-
-path = "result.status", type = CHANGED, old_value = "ok", new_value = "success".
-
-2. Comparison Algorithm
-   Recursively traverse both JSON objects (dicts, lists, primitives).
-
-For dicts:
-
-Keys only in original → REMOVED.
-
-Keys only in replayed → ADDED.
-
-Keys in both → recursively compare values; if different → CHANGED, else UNCHANGED.
-
-For lists:
-
-Simple approach: compare by index (assumes order preserved). If lengths differ, report CHANGED at the list level.
-
-Advanced: use difflib to find insertions/deletions (optional, not needed for MVP).
-
-For primitives (string, number, bool, null): compare directly.
-
-3. Rich Rendering
-   Option A: Side‑by‑side panel (recommended for small diffs)
+Option	Type	Default	Description
+--server, -s	str	required	Command to launch the target server (e.g., npx -y @modelcontextprotocol/server-filesystem /tmp).
+--timeout	int	5000	Timeout in milliseconds per request‑response pair.
+--max-messages	int	None	Maximum number of client messages to replay (useful for testing a subset).
+--filter-method	str	None	Only replay messages with this method name (e.g., --filter-method tools/call).
+--verbose, -v	flag	False	Show all messages with diffs (even those that match). Default: only show mismatches.
+--json	flag	False	Output raw JSON report (no Rich terminal formatting).
+--output, -o	path	None	Write output to a file (instead of stdout). Works with both --json and terminal output.
+--save	flag	False	Save replay results to the replays database table (for later querying).
+--no-diff	flag	False	Skip detailed diff output (only show summary). Useful for quick checks.
+2. Terminal Output (Default)
+Summary section (Rich panel):
 
 text
-┌──────────────────────────────┬──────────────────────────────┐
-│ Original │ Replayed │
-├──────────────────────────────┼──────────────────────────────┤
-│ { │ { │
-│ "status": "ok", │ "status": "success", │
-│ "count": 42 │ "count": 42 │
-│ } │ } │
-└──────────────────────────────┴──────────────────────────────┘
-Use rich.panel.Panel with two panels side‑by‑side (or use rich.columns.Columns).
-
-Colour differences: changed fields in yellow, added in green, removed in red.
-
-Option B: Inline diff (better for large JSON)
-
-text
-result.status
-
-- "ok"
-
-* "success"
-
-result.extra
-
-- "new_field": 123
-  Print each changed field on a new line with colour.
-
-For nested paths, use indentation.
-
-Option C: Full diff tree (Rich tree widget)
+┌─────────────────────────────────────────────────────────────────┐
+│ Replay of Session #42                                           │
+│ Source server: npx -y .../server-filesystem /tmp                │
+│ Target server: npx -y .../server-filesystem /tmp (new version)  │
+│ Duration: 2.34 seconds                                          │
+├─────────────────────────────────────────────────────────────────┤
+│ Total messages replayed: 65                                     │
+│ ✓ Successful matches: 62                                        │
+│ ✗ Mismatches: 3                                                 │
+│ ⏱ Timeouts: 0                                                   │
+│ ❌ Errors: 0                                                     │
+└─────────────────────────────────────────────────────────────────┘
+Mismatch details (for each mismatched message):
 
 text
-📦 result
-└── status: "ok" → "success" [changed]
-└── extra: + "new_field" [added]
-Choose Option B (inline diff) for MVP – simplest to implement and readable in terminal.
+Message #23: tools/call (client → server)
+Tool: read_file
+Arguments: {"path": "/tmp/test.txt"}
 
-4. Integration with Replay Result
-   Modify ReplayedMessage (from Day 15) to include:
+Original response:
+  { "content": [{"type": "text", "text": "file content"}] }
 
-python
-class ReplayedMessage(BaseModel): # ... existing fields ...
-diff: Optional[List[DiffNode]] = None
-diff_text: Optional[str] = None # pre‑rendered diff for terminal
-After comparing responses, call compare_json() and store the result. Also generate a human‑readable diff string using render_diff().
+Replayed response:
+  { "content": [{"type": "text", "text": "different content"}] }
+
+Differences:
+  result.content[0].text
+    - "file content"
+    + "different content"
+Use Rich panels, colour‑coding (red for removed, green for added, yellow for changed).
+
+If --verbose: Show every message with a small indicator (✓ or ✗) and diff only if mismatched.
+
+If --no-diff: Only show summary and list of mismatched message IDs (no inline diff).
+
+3. JSON Output (--json)
+Output a JSON object containing:
+
+json
+{
+  "session_id": 42,
+  "source_server_command": "...",
+  "target_server_command": "...",
+  "started_at": "2025-06-15T10:00:00Z",
+  "ended_at": "2025-06-15T10:00:02.34Z",
+  "duration_seconds": 2.34,
+  "summary": {
+    "total": 65,
+    "matches": 62,
+    "mismatches": 3,
+    "timeouts": 0,
+    "errors": 0
+  },
+  "messages": [
+    {
+      "original_message_id": 23,
+      "method": "tools/call",
+      "matched": false,
+      "diff": [
+        {
+          "path": "result.content[0].text",
+          "type": "changed",
+          "old_value": "file content",
+          "new_value": "different content"
+        }
+      ]
+    }
+  ]
+}
+This format is easy to parse in CI scripts.
+
+4. Saving to Database (--save)
+Create a new replays table (if not exists – Day 15 defined schema but not created).
+
+Insert a row into replays with source session, target command, status, counts.
+
+Insert rows into replay_messages for each replayed message.
+
+Print a message: Replay saved as replay ID 5. Use 'mcp-debugger replay show 5' to view later. (Future enhancement: replay list and replay show commands, not required for MVP but leave room.)
+
+For MVP, --save can be optional; implement it if time permits, otherwise postpone to Day 18.
+
+5. Exit Code Logic
+Condition	Exit Code
+Replay completed successfully, all responses match	0
+Replay completed, but some responses mismatched	1
+Timeout or server crash	2
+Invalid arguments (e.g., session not found)	1
+This allows CI to fail when a server upgrade introduces breaking changes.
 
 🔗 Integration with Previous Days
-Day 15 (Replay Engine): The replay loop now calls compare_json after each response.
+Day 15 (Replay Engine): ReplayEngine.replay() returns ReplayResult.
 
-Day 2 (Models): Not directly used, but diff logic works on any JSON-serialisable data.
+Day 16 (Diff): Each ReplayedMessage has diff and diff_text.
 
-Day 17 (CLI replay command): Will display the diff using the rendered string.
+Day 3 (Database): If --save, insert into replays and replay_messages.
 
 ⚙️ Production Considerations
 Performance
-Deep comparison of large JSON (e.g., a tool schema of 1MB) could be slow. For MVP, it’s acceptable. Add a size cap (e.g., skip diff if > 100KB) and warn.
+Replaying a large session (1000+ messages) may take minutes. Add a progress bar using rich.progress.Progress while replaying.
 
-Handling Non‑Deterministic Fields
-Some fields are expected to differ (e.g., timestamp, request_id). You can add an ignore list of paths to skip during comparison. For MVP, ignore nothing – the user will see the differences. A future enhancement could be a configuration file: diff_ignore_paths = ["$.timestamp", "$.id"].
+The --max-messages option allows users to test a subset.
 
-Array Comparison
-Simple index‑based comparison works for most MCP responses because order is usually stable.
+Error Handling
+If target server fails to start (command not found), print error and exit with code 2.
 
-If arrays can reorder (e.g., tool list), you may get false mismatches. For MVP, accept this. Document that replay diff for unordered arrays may show false positives.
+If server crashes during replay, print the message where it crashed and exit.
 
-Output Format for CI
-When --json is used, the replay command (Day 17) should output the structured diff as JSON, not rendered text. This allows scripts to assert that no changes occurred.
+Progress Reporting
+During replay, show a live progress bar:
 
-✅ Day 16 Verification Checklist
+text
+Replaying session 42... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 45/65 (69%) • 0:00:23
+Use rich.progress with Progress and BarColumn.
 
-# Check How to verify
+Interaction with --verbose
+Default: Only show summary + mismatched messages.
 
-1 compare_json() exists and returns DiffNode tree Unit test: compare two simple dicts – correct DiffNode with CHANGED.
-2 Recursive diff works for nested objects Nested dict with a changed leaf → path includes full hierarchy.
-3 Added fields detected Original missing a key, replayed has it → ADDED.
-4 Removed fields detected Original has key, replayed missing → REMOVED.
-5 Array comparison (by index) works Two arrays of same length with one different element → CHANGED at index path.
-6 Primitive types compared correctly Number vs string → CHANGED.
-7 render_diff() produces inline colour‑coded output Call with a diff tree → string contains -, +, and ANSI colour codes.
-8 Diff is integrated into ReplayedMessage After replay, each message has non‑empty diff if responses differ.
-9 Unit tests for compare_json cover edge cases (empty dict, null, list of primitives) pytest tests/test_replay.py::test_diff passes.
-10 Diff performance: 1MB JSON < 0.5 seconds Measure with time.perf_counter() – acceptable for MVP.
-11 mypy --strict passes –
-12 ruff check passes –
-13 Documentation: add diff examples to docs/replay.md –
-14 Commit with message feat(replay): add diff visualisation –
-🚀 After Day 16 – Immediate Next Steps
+--verbose: Show all messages (with ✓/✗ markers). For matches, show no diff; for mismatches, show diff.
+
+Combining with --output
+If --output file.txt and not --json, write the terminal output (including ANSI codes) to a file. Use console.save_text() or redirect manually.
+
+If --output file.json and --json, write JSON.
+
+✅ Day 17 Verification Checklist
+#	Check	How to verify
+1	mcp-debugger replay --help shows all options	Run command.
+2	replay <id> --server <cmd> runs without errors	Use a session recorded from filesystem server, replay against same server → all matches.
+3	Summary panel shows correct counts	Compare with manual counting.
+4	Mismatched messages are displayed with inline diff	Modify the target server (e.g., change a response) → diff appears.
+5	--verbose shows all messages	Output includes matched messages with ✓.
+6	--json outputs valid JSON	Pipe to jq.
+7	--output writes to file	File exists, content matches console output (or JSON).
+8	--max-messages 10 replays only first 10 messages	Check summary count.
+9	--filter-method tools/call replays only tool calls	No initialize or tools/list messages.
+10	Exit code is 0 when all responses match	Run replay against identical server → echo $? = 0.
+11	Exit code is 1 when mismatches exist	Modify server → exit code 1.
+12	Exit code is 2 when server fails to start	--server "nonexistent" → exit code 2.
+13	Progress bar appears during replay	Visual inspection.
+14	Timeout handling: if server hangs, replay aborts and shows timeout error	Use --server "sleep 10 && cat" → timeout.
+15	Unit tests for CLI command (mocked ReplayEngine)	pytest tests/test_cli.py::test_replay_command.
+16	Integration test: record session → replay → verify match/mismatch detection	Extend Day 14 integration script.
+17	mypy --strict passes	–
+18	ruff check passes	–
+19	Documentation updated (docs/commands.md with replay examples)	–
+20	Commit with message feat(replay): add CLI replay command	–

@@ -242,3 +242,47 @@ pip install 'mcp-debugger[export]'
 ```
 
 
+---
+
+## The `replay` Command
+
+The `replay` command allows you to replay client messages from a previously recorded session against a target server, comparing responses and generating regression diff reports.
+
+### Usage Options
+
+```bash
+mcp-debugger replay <session_id> --server <command> [OPTIONS]
+```
+
+*   `<session_id>`: The recorded session ID to retrieve client requests from (required).
+*   `-s, --server <command>`: The command line to launch the target MCP server (required).
+*   `--timeout <ms>`: Timeout in milliseconds per request-response pair (default: `5000`).
+*   `--max-messages <number>`: Replay only up to this many client messages.
+*   `--filter-method <method>`: Only replay client messages matching this method name (e.g. `tools/call`).
+*   `-v, --verbose`: Show status of all messages (including matched ones). By default, only mismatches are shown.
+*   `--json`: Outputs raw JSON report instead of terminal-friendly output.
+*   `-o, --output <file>`: Write results to a file (saves ANSI console styling or JSON report).
+*   `--save`: Save run statistics and replayed responses to database `replays` and `replay_messages` tables.
+*   `--no-diff`: Only print replay counts and mismatched message IDs without inline diff block.
+
+### Examples
+
+#### 1. Replay and Regression Test a Target Server
+Runs recorded session `42` against a local server build, showing visual diffs on mismatches.
+```bash
+mcp-debugger replay 42 --server "python build/my_server.py"
+```
+
+#### 2. Replay in Silent JSON format for CI/CD Pipelines
+Validates server and outputs JSON report:
+```bash
+mcp-debugger replay 42 --server "node build/index.js" --json
+```
+
+### Exit Codes
+*   `0`: All replayed messages matched successfully.
+*   `1`: Completed successfully, but one or more responses mismatched.
+*   `2`: Target server crashed, timed out, or failed to start.
+
+
+

@@ -8,7 +8,7 @@ import logging
 import sys
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 from pydantic import BaseModel
 
 from mcp_debugger.storage.database import Database
@@ -35,6 +35,7 @@ class ReplayedMessage(BaseModel):
 class ReplayResult(BaseModel):
     """Overall summary of a replay session."""
 
+    replay_id: Optional[int] = None
     session_id: int
     target_server_command: str
     started_at: datetime
@@ -137,6 +138,8 @@ class ReplayEngine:
         replay_mode: str = "exact",
         message_filter: Optional[List[str]] = None,
         persist: bool = True,
+        max_messages: Optional[int] = None,
+        on_message_replayed: Optional[Callable[[int, int], None]] = None,
     ) -> ReplayResult:
         """Replay client messages from session_id to a new server.
 
@@ -147,12 +150,22 @@ class ReplayEngine:
             replay_mode: "exact" (all messages) or "selective" (filtered).
             message_filter: List of method names to replay (if selective).
             persist: Whether to save the replay result in the database.
+            max_messages: Maximum number of messages to replay.
+            on_message_replayed: Optional callback when a message is replayed, called with (current, total).
 
         Returns:
             ReplayResult containing original vs replayed responses, diff status.
         """
         started_at = datetime.now(timezone.utc)
         original_msgs = await self.db.get_replay_messages(session_id)
+
+        # Apply selective filtering
+        if replay_mode == "selective" and message_filter is not None:
+            original_msgs = [m for m in original_msgs if m.get("method") in message_filter]
+
+        # Apply max messages limit
+        if max_messages is not None and max_messages > 0:
+            original_msgs = original_msgs[:max_messages]
 
         if not original_msgs:
             # Return empty result if no messages found
@@ -199,7 +212,21 @@ class ReplayEngine:
                     )
                 )
 
+            replay_id = None
+            if persist:
+                replay_id = await self.db.save_replay(
+                    source_session_id=session_id,
+                    target_server_command=target_server_command,
+                    status="failed",
+                    total_messages=len(failed_msgs),
+                    mismatches=len(failed_msgs),
+                    messages=[m.model_dump() for m in failed_msgs],
+                    started_at=started_at.isoformat(),
+                    ended_at=ended_at.isoformat(),
+                )
+
             result = ReplayResult(
+                replay_id=replay_id,
                 session_id=session_id,
                 target_server_command=target_server_command,
                 started_at=started_at,
@@ -211,18 +238,6 @@ class ReplayEngine:
                 timed_out=0,
                 messages=failed_msgs,
             )
-
-            if persist:
-                await self.db.save_replay(
-                    source_session_id=session_id,
-                    target_server_command=target_server_command,
-                    status="failed",
-                    total_messages=result.total_messages_replayed,
-                    mismatches=result.total_messages_replayed,
-                    messages=[m.model_dump() for m in failed_msgs],
-                    started_at=started_at.isoformat(),
-                    ended_at=ended_at.isoformat(),
-                )
             return result
 
         assert process.stdin and process.stdout
@@ -239,10 +254,10 @@ class ReplayEngine:
         server_terminated = False
 
         try:
-            for msg in original_msgs:
+            for idx, msg in enumerate(original_msgs):
                 method = msg["method"]
 
-                # Apply selective filtering if requested
+                # Apply selective filtering if requested (already done pre-loop, but kept for compatibility)
                 if replay_mode == "selective" and message_filter is not None:
                     if method not in message_filter:
                         continue
@@ -335,6 +350,8 @@ class ReplayEngine:
                         diff_text=msg_diff_text,
                     )
                 )
+                if on_message_replayed:
+                    on_message_replayed(idx + 1, len(original_msgs))
 
         finally:
             reader_task.cancel()
@@ -369,7 +386,21 @@ class ReplayEngine:
         elif failed_responses > 0:
             status = "failed"
 
+        replay_id = None
+        if persist:
+            replay_id = await self.db.save_replay(
+                source_session_id=session_id,
+                target_server_command=target_server_command,
+                status=status,
+                total_messages=len(replayed_messages),
+                mismatches=mismatched_responses + timed_out + failed_responses,
+                messages=[m.model_dump() for m in replayed_messages],
+                started_at=started_at.isoformat(),
+                ended_at=ended_at.isoformat(),
+            )
+
         result = ReplayResult(
+            replay_id=replay_id,
             session_id=session_id,
             target_server_command=target_server_command,
             started_at=started_at,
@@ -381,17 +412,5 @@ class ReplayEngine:
             timed_out=timed_out,
             messages=replayed_messages,
         )
-
-        if persist:
-            await self.db.save_replay(
-                source_session_id=session_id,
-                target_server_command=target_server_command,
-                status=status,
-                total_messages=result.total_messages_replayed,
-                mismatches=result.mismatched_responses + result.timed_out + result.failed_responses,
-                messages=[m.model_dump() for m in replayed_messages],
-                started_at=started_at.isoformat(),
-                ended_at=ended_at.isoformat(),
-            )
 
         return result
