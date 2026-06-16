@@ -1,202 +1,157 @@
-Day 17: CLI Replay Command – Exposing Replay to Users
-You have the replay engine (Day 15) and diff visualisation (Day 16). Now it’s time to wrap them into a user‑friendly CLI command. Developers can now run:
+Day 19: OpenTelemetry Export for Replay Results
+You have a fully functional replay system (Days 15–18) that can test server changes and report mismatches. But the results are currently siloed – they live in the terminal or the local database. For teams with existing observability stacks (Jaeger, Tempo, Datadog), they want to see replay results as traces alongside their service metrics.
+
+Day 19 adds OpenTelemetry export for replay results – converting replay runs into trace data that can be visualised in Jaeger, Grafana, or any OTLP-compatible backend. This allows teams to:
+
+Track regression trends – see how mismatch counts change over time (via trace attributes).
+
+Correlate with deployments – tie replay failures to specific server versions.
+
+Alert on regressions – OTLP exporters can integrate with alerting systems.
+
+By the end of Day 19, you can run:
 
 bash
-mcp-debugger replay <session_id> --server "new-server-command"
-and see a detailed report of which responses changed, with colour‑coded diffs, summary statistics, and an exit code suitable for CI/CD.
-
-By the end of Day 17, your tool will be able to regression‑test MCP servers – a game‑changer for anyone maintaining or upgrading MCP implementations.
+mcp-debugger replay 42 --server "..." --otlp-endpoint http://jaeger:4317
+and see a trace in Jaeger showing each replayed message as a span, with diff summaries as span attributes/events.
 
 🎯 Core Objective
-Implement mcp-debugger replay command with the following features:
+Extend the replay command (and optionally replay show) with OpenTelemetry export:
 
-Feature	Behaviour
-Replay a session	Load client messages from a recorded session, send them to a new server, compare responses.
-Output formats	Rich terminal report (default) or JSON (--json) for scripting.
-Diff display	Show only mismatched messages by default, with inline diffs. Use --verbose to show all messages.
-Exit code	0 if all responses match (or only warnings), 1 if any mismatch or critical error.
-Options	--server (required), --timeout, --max-messages, --filter-method, --json, --output, --verbose.
-Persistence	Optionally save replay results to the database (--save) for later review.
+Feature	Description
+OTLP export	Send replay results to an OTLP collector (gRPC or HTTP) using the OpenTelemetry SDK.
+Trace structure	Each replay run = a trace. Each replayed message = a span (or a pair of request/response spans).
+Attributes	Include mismatch status, latency, method name, tool name, diff summary (truncated).
+Events	For mismatched responses, add an event with the diff details.
+Flags	--otlp-endpoint, --otlp-insecure, --otlp-service-name, --otlp-export (or detect automatically if OTEL_EXPORTER_OTLP_ENDPOINT env var is set).
+Fallback	If OTLP export fails (e.g., collector unreachable), still complete replay and print a warning.
 Deliverables by end of day:
 
-src/mcp_debugger/cli/replay_commands.py (or extend cli.py).
+src/mcp_debugger/exporters/otlp_replay_exporter.py – module to convert ReplayResult to OTLP spans.
 
-Integration with ReplayEngine and diff module.
+Integration with replay command (new options).
 
-Rich output: summary table, per‑message diff for mismatches.
+Unit tests for OTLP exporter (mocked gRPC).
 
-Unit and integration tests.
-
-Documentation updated.
+Documentation.
 
 🧠 Expected Behaviour
-1. Command Signature
-bash
-mcp-debugger replay <session_id> --server <command> [OPTIONS]
-Arguments:
+1. OpenTelemetry Integration Design
+Trace root: One trace per replay run. Use the replay_id or a generated UUID as the trace ID.
 
-session_id – ID of the recorded session to replay.
+Spans:
 
-Options:
+Root span: Represents the entire replay run. Attributes: replay.source_session_id, replay.target_server_command, replay.total_messages, replay.mismatches, replay.timeouts, replay.errors, replay.match_percentage.
+
+Child spans: For each replayed message (or pair of request/response), create a child span.
+
+Span name: mcp.replay.{method} (e.g., mcp.replay.tools/call).
+
+Attributes:
+
+mcp.method (string)
+
+mcp.direction (always client_to_server for replay)
+
+mcp.tool.name (if method is tools/call)
+
+mcp.replay.matched (boolean)
+
+mcp.replay.latency_ms (float)
+
+mcp.replay.original_response_hash (optional, for grouping)
+
+mcp.replay.diff_summary (truncated diff string, max 255 chars)
+
+Events:
+
+If mismatched: add an event mcp.replay.diff with the diff as a structured attribute (or as a JSON string).
+
+Span status: If any mismatch or error, set span status to Error with description.
+
+2. Export Configuration
+Endpoint: Use --otlp-endpoint (default http://localhost:4317 for gRPC, or http://localhost:4318/v1/traces for HTTP). The user can also set OTEL_EXPORTER_OTLP_ENDPOINT env var.
+
+Protocol: Support both gRPC and HTTP/protobuf. Use opentelemetry-exporter-otlp-proto-grpc and opentelemetry-exporter-otlp-proto-http as optional dependencies.
+
+Service name: --otlp-service-name (default mcp-debugger).
+
+Insecure: --otlp-insecure (disable TLS for local testing).
+
+3. Integration with replay Command
+Add new options to mcp-debugger replay:
 
 Option	Type	Default	Description
---server, -s	str	required	Command to launch the target server (e.g., npx -y @modelcontextprotocol/server-filesystem /tmp).
---timeout	int	5000	Timeout in milliseconds per request‑response pair.
---max-messages	int	None	Maximum number of client messages to replay (useful for testing a subset).
---filter-method	str	None	Only replay messages with this method name (e.g., --filter-method tools/call).
---verbose, -v	flag	False	Show all messages with diffs (even those that match). Default: only show mismatches.
---json	flag	False	Output raw JSON report (no Rich terminal formatting).
---output, -o	path	None	Write output to a file (instead of stdout). Works with both --json and terminal output.
---save	flag	False	Save replay results to the replays database table (for later querying).
---no-diff	flag	False	Skip detailed diff output (only show summary). Useful for quick checks.
-2. Terminal Output (Default)
-Summary section (Rich panel):
+--otlp-export	flag	False	Enable OTLP export (if not set, no export).
+--otlp-endpoint	str	http://localhost:4317	OTLP collector endpoint.
+--otlp-insecure	flag	False	Disable TLS.
+--otlp-service-name	str	mcp-debugger	Service name for traces.
+If --otlp-export is given but the OTLP libraries are not installed, print a helpful error and suggest pip install mcp-debugger[otlp].
 
-text
-┌─────────────────────────────────────────────────────────────────┐
-│ Replay of Session #42                                           │
-│ Source server: npx -y .../server-filesystem /tmp                │
-│ Target server: npx -y .../server-filesystem /tmp (new version)  │
-│ Duration: 2.34 seconds                                          │
-├─────────────────────────────────────────────────────────────────┤
-│ Total messages replayed: 65                                     │
-│ ✓ Successful matches: 62                                        │
-│ ✗ Mismatches: 3                                                 │
-│ ⏱ Timeouts: 0                                                   │
-│ ❌ Errors: 0                                                     │
-└─────────────────────────────────────────────────────────────────┘
-Mismatch details (for each mismatched message):
+Behaviour:
 
-text
-Message #23: tools/call (client → server)
-Tool: read_file
-Arguments: {"path": "/tmp/test.txt"}
+After replay completes, export the trace asynchronously (do not block the CLI).
 
-Original response:
-  { "content": [{"type": "text", "text": "file content"}] }
+If export fails (e.g., connection refused), print a warning but do not affect exit code (unless --otlp-export is required, but keep it optional).
 
-Replayed response:
-  { "content": [{"type": "text", "text": "different content"}] }
+The trace should be exported even if there are mismatches – that’s the point.
 
-Differences:
-  result.content[0].text
-    - "file content"
-    + "different content"
-Use Rich panels, colour‑coding (red for removed, green for added, yellow for changed).
-
-If --verbose: Show every message with a small indicator (✓ or ✗) and diff only if mismatched.
-
-If --no-diff: Only show summary and list of mismatched message IDs (no inline diff).
-
-3. JSON Output (--json)
-Output a JSON object containing:
-
-json
-{
-  "session_id": 42,
-  "source_server_command": "...",
-  "target_server_command": "...",
-  "started_at": "2025-06-15T10:00:00Z",
-  "ended_at": "2025-06-15T10:00:02.34Z",
-  "duration_seconds": 2.34,
-  "summary": {
-    "total": 65,
-    "matches": 62,
-    "mismatches": 3,
-    "timeouts": 0,
-    "errors": 0
-  },
-  "messages": [
-    {
-      "original_message_id": 23,
-      "method": "tools/call",
-      "matched": false,
-      "diff": [
-        {
-          "path": "result.content[0].text",
-          "type": "changed",
-          "old_value": "file content",
-          "new_value": "different content"
-        }
-      ]
-    }
-  ]
-}
-This format is easy to parse in CI scripts.
-
-4. Saving to Database (--save)
-Create a new replays table (if not exists – Day 15 defined schema but not created).
-
-Insert a row into replays with source session, target command, status, counts.
-
-Insert rows into replay_messages for each replayed message.
-
-Print a message: Replay saved as replay ID 5. Use 'mcp-debugger replay show 5' to view later. (Future enhancement: replay list and replay show commands, not required for MVP but leave room.)
-
-For MVP, --save can be optional; implement it if time permits, otherwise postpone to Day 18.
-
-5. Exit Code Logic
-Condition	Exit Code
-Replay completed successfully, all responses match	0
-Replay completed, but some responses mismatched	1
-Timeout or server crash	2
-Invalid arguments (e.g., session not found)	1
-This allows CI to fail when a server upgrade introduces breaking changes.
+4. Export Replay Results from Saved Replays
+Add --otlp-export to replay show as well – this allows re‑exporting a saved replay without re‑running the server. The exporter will read from the replay_messages table and generate the same trace structure.
 
 🔗 Integration with Previous Days
-Day 15 (Replay Engine): ReplayEngine.replay() returns ReplayResult.
+Day 15/17 (Replay): ReplayResult contains all data needed for export.
 
-Day 16 (Diff): Each ReplayedMessage has diff and diff_text.
+Day 3 (Database): If exporting from saved replays, fetch data from replays and replay_messages.
 
-Day 3 (Database): If --save, insert into replays and replay_messages.
+Day 16 (Diff): Diff data is stored/available for mismatched messages.
 
 ⚙️ Production Considerations
-Performance
-Replaying a large session (1000+ messages) may take minutes. Add a progress bar using rich.progress.Progress while replaying.
+Dependencies
+Add to pyproject.toml as optional otlp group:
 
-The --max-messages option allows users to test a subset.
+toml
+[project.optional-dependencies]
+otlp = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+]
+Performance
+Exporting a trace with hundreds of spans can be slow. The exporter should send spans in batches (the SDK handles this).
+
+Use opentelemetry.sdk.trace.export.BatchSpanProcessor to avoid blocking.
 
 Error Handling
-If target server fails to start (command not found), print error and exit with code 2.
+If OTLP endpoint is unreachable, log error but do not crash the replay.
 
-If server crashes during replay, print the message where it crashed and exit.
+If the user does not have the OTLP dependencies installed, print clear instructions.
 
-Progress Reporting
-During replay, show a live progress bar:
+Span Attributes Limits
+The diff summary could be long. Truncate to 255 characters.
 
-text
-Replaying session 42... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 45/65 (69%) • 0:00:23
-Use rich.progress with Progress and BarColumn.
+The full diff can be stored as an event with a JSON payload (but OTLP limits event size). Keep it optional.
 
-Interaction with --verbose
-Default: Only show summary + mismatched messages.
+Backward Compatibility
+The replay command remains functional without OTLP. No required changes.
 
---verbose: Show all messages (with ✓/✗ markers). For matches, show no diff; for mismatches, show diff.
-
-Combining with --output
-If --output file.txt and not --json, write the terminal output (including ANSI codes) to a file. Use console.save_text() or redirect manually.
-
-If --output file.json and --json, write JSON.
-
-✅ Day 17 Verification Checklist
+✅ Day 19 Verification Checklist
 #	Check	How to verify
-1	mcp-debugger replay --help shows all options	Run command.
-2	replay <id> --server <cmd> runs without errors	Use a session recorded from filesystem server, replay against same server → all matches.
-3	Summary panel shows correct counts	Compare with manual counting.
-4	Mismatched messages are displayed with inline diff	Modify the target server (e.g., change a response) → diff appears.
-5	--verbose shows all messages	Output includes matched messages with ✓.
-6	--json outputs valid JSON	Pipe to jq.
-7	--output writes to file	File exists, content matches console output (or JSON).
-8	--max-messages 10 replays only first 10 messages	Check summary count.
-9	--filter-method tools/call replays only tool calls	No initialize or tools/list messages.
-10	Exit code is 0 when all responses match	Run replay against identical server → echo $? = 0.
-11	Exit code is 1 when mismatches exist	Modify server → exit code 1.
-12	Exit code is 2 when server fails to start	--server "nonexistent" → exit code 2.
-13	Progress bar appears during replay	Visual inspection.
-14	Timeout handling: if server hangs, replay aborts and shows timeout error	Use --server "sleep 10 && cat" → timeout.
-15	Unit tests for CLI command (mocked ReplayEngine)	pytest tests/test_cli.py::test_replay_command.
-16	Integration test: record session → replay → verify match/mismatch detection	Extend Day 14 integration script.
-17	mypy --strict passes	–
-18	ruff check passes	–
-19	Documentation updated (docs/commands.md with replay examples)	–
-20	Commit with message feat(replay): add CLI replay command	–
+1	OTLP export is optional; replay works without --otlp-export	Run replay without flag – no OTLP libraries attempted.
+2	When --otlp-export is given, trace appears in Jaeger	Run Jaeger locally (e.g., docker run -p 16686:16686 -p 4317:4317 jaegertracing/all-in-one), replay with --otlp-export, view in Jaeger UI.
+3	Trace root span has correct attributes (session id, mismatches, etc.)	Inspect in Jaeger.
+4	Each message has a child span with method name, matched flag, latency	Check Jaeger.
+5	Mismatched messages have an event with diff	View span events.
+6	Span status is Error if mismatch or timeout	Jaeger shows red spans for errors.
+7	--otlp-endpoint overrides default	Export to a different collector works.
+8	--otlp-insecure disables TLS (for local testing)	Works with local HTTP endpoint.
+9	Export from saved replay (replay show --otlp-export) works	Same trace structure as live replay.
+10	Missing OTLP dependencies show helpful error	Install base package without [otlp], run --otlp-export – error message appears.
+11	Unit tests for exporter (mock OTLP)	pytest tests/test_exporters.py::test_otlp_replay passes.
+12	Integration test: replay with OTLP export to a mock collector	Check that spans are sent.
+13	mypy --strict passes (with stubs for OTLP)	–
+14	ruff check passes	–
+15	Documentation updated (docs/replay.md with OTLP section)	–
+16	Commit with message feat(otlp): add OpenTelemetry export for replay results	–
+🚀 After Day 19 – Immediate Next Steps

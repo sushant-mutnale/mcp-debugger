@@ -1611,6 +1611,18 @@ def replay(
     no_diff: bool = typer.Option(
         False, "--no-diff", help="Skip detailed diff output (only show summary)"
     ),
+    otlp_export: bool = typer.Option(
+        False, "--otlp-export", help="Export replay results to an OTLP collector (requires mcp-debugger[otlp])"
+    ),
+    otlp_endpoint: str = typer.Option(
+        "http://localhost:4317", "--otlp-endpoint", help="OTLP gRPC collector endpoint"
+    ),
+    otlp_insecure: bool = typer.Option(
+        True, "--otlp-insecure/--otlp-tls", help="Disable TLS for local OTLP collectors"
+    ),
+    otlp_service_name: str = typer.Option(
+        "mcp-debugger", "--otlp-service-name", help="Service name for OTLP traces"
+    ),
 ) -> None:
     """Replay client messages from a recorded session against a target server."""
 
@@ -1834,6 +1846,23 @@ def replay(
         # Exit codes:
         # 0 if all responses match
         # 1 if any mismatch (i.e. mismatches > 0)
+
+        # --- OTLP export (optional, non-blocking) ---
+        if otlp_export:
+            try:
+                from mcp_debugger.exporters.otlp_replay_exporter import OTLPReplayExporter
+                exporter_otlp = OTLPReplayExporter(
+                    endpoint=otlp_endpoint,
+                    insecure=otlp_insecure,
+                    service_name=otlp_service_name,
+                )
+                span_count = exporter_otlp.export(result)
+                console.print(f"[dim]OTLP: exported {span_count} spans to {otlp_endpoint}[/dim]")
+            except ImportError as ie:
+                console.print(f"[yellow]Warning: {ie}[/yellow]")
+            except Exception as oe:
+                console.print(f"[yellow]Warning: OTLP export failed: {oe}[/yellow]")
+
         if mismatches > 0:
             sys.exit(1)
         else:

@@ -382,3 +382,236 @@ class TestOTLPExporterPairing:
             otlp_mod._OTLP_AVAILABLE = original
 
 
+# ---------------------------------------------------------------------------
+# OTLPReplayExporter tests
+# ---------------------------------------------------------------------------
+
+class TestOTLPReplayExporter:
+    """Tests for the OTLPReplayExporter that converts ReplayResult into spans."""
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _make_result(
+        self,
+        *,
+        session_id: int = 42,
+        matches: int = 2,
+        mismatches: int = 0,
+        with_diff: bool = False,
+    ) -> Any:
+        """Build a minimal ReplayResult fixture."""
+        from datetime import datetime, timezone
+        from mcp_debugger.replay.engine import ReplayResult, ReplayedMessage
+        from mcp_debugger.replay.diff import DiffNode, DiffType
+
+        msgs = []
+        for i in range(matches):
+            msgs.append(ReplayedMessage(
+                original_message_id=i + 1,
+                method="tools/list",
+                request_sent={"id": i + 1, "method": "tools/list"},
+                original_response={"id": i + 1, "result": {"tools": []}},
+                replayed_response={"id": i + 1, "result": {"tools": []}},
+                latency_ms=float(10 + i),
+                matches=True,
+            ))
+
+        for j in range(mismatches):
+            diff_nodes = []
+            if with_diff:
+                diff_nodes = [DiffNode(
+                    path="result.tools[0].name",
+                    type=DiffType.CHANGED,
+                    old_value="old",
+                    new_value="new",
+                )]
+            msgs.append(ReplayedMessage(
+                original_message_id=100 + j,
+                method="tools/call",
+                request_sent={
+                    "id": 100 + j,
+                    "method": "tools/call",
+                    "params": {"name": "read_file", "arguments": {"path": "/tmp/f.txt"}},
+                },
+                original_response={"id": 100 + j, "result": {"content": [{"type": "text", "text": "old"}]}},
+                replayed_response={"id": 100 + j, "result": {"content": [{"type": "text", "text": "new"}]}},
+                latency_ms=99.9,
+                matches=False,
+                diff=diff_nodes if with_diff else None,
+                diff_text="result.tools[0].name: old → new" if with_diff else None,
+            ))
+
+        return ReplayResult(
+            replay_id=7,
+            session_id=session_id,
+            target_server_command="mock-server",
+            started_at=datetime(2025, 6, 15, 10, 0, 0, tzinfo=timezone.utc),
+            ended_at=datetime(2025, 6, 15, 10, 0, 2, tzinfo=timezone.utc),
+            total_messages_replayed=matches + mismatches,
+            successful_responses=matches,
+            failed_responses=0,
+            mismatched_responses=mismatches,
+            timed_out=0,
+            messages=msgs,
+        )
+
+    # ------------------------------------------------------------------
+    # Tests
+    # ------------------------------------------------------------------
+
+    def test_import_error_when_sdk_missing(self) -> None:
+        """OTLPReplayExporter raises ImportError with helpful message when SDK absent."""
+        import mcp_debugger.exporters.otlp_replay_exporter as mod
+        original = mod._OTLP_AVAILABLE
+        try:
+            mod._OTLP_AVAILABLE = False
+            with pytest.raises(ImportError, match="pip install"):
+                mod.OTLPReplayExporter()
+        finally:
+            mod._OTLP_AVAILABLE = original
+
+    def test_export_returns_span_count(self) -> None:
+        """export() returns the correct number of child spans."""
+        from unittest.mock import MagicMock, patch, call
+        import mcp_debugger.exporters.otlp_replay_exporter as mod
+
+        result = self._make_result(matches=3)
+
+        mock_provider = MagicMock()
+        mock_tracer = MagicMock()
+        mock_root_span_ctx = MagicMock()
+        mock_root_span_ctx.__enter__ = MagicMock(return_value=MagicMock())
+        mock_root_span_ctx.__exit__ = MagicMock(return_value=False)
+        mock_tracer.start_as_current_span.return_value = mock_root_span_ctx
+
+        with patch.object(mod, "_OTLP_AVAILABLE", True), \
+             patch.object(mod, "TracerProvider", return_value=mock_provider), \
+             patch.object(mod, "OTLPSpanExporter", return_value=MagicMock()), \
+             patch.object(mod, "BatchSpanProcessor", return_value=MagicMock()), \
+             patch.object(mod, "Resource", MagicMock()) as mock_res:
+            mock_res.create.return_value = MagicMock()
+            mock_provider.get_tracer.return_value = mock_tracer
+
+            exporter = mod.OTLPReplayExporter()
+            count = exporter.export(result)
+
+        # Root span + child spans; export() returns only child span count
+        assert count == 3
+
+    def test_export_all_matches_no_error_status(self) -> None:
+        """Root span is not marked ERROR when all messages match."""
+        from unittest.mock import MagicMock, patch
+        import mcp_debugger.exporters.otlp_replay_exporter as mod
+
+        result = self._make_result(matches=2, mismatches=0)
+
+        mock_provider = MagicMock()
+        mock_tracer = MagicMock()
+        mock_root_span = MagicMock()
+        mock_root_span_ctx = MagicMock()
+        mock_root_span_ctx.__enter__ = MagicMock(return_value=mock_root_span)
+        mock_root_span_ctx.__exit__ = MagicMock(return_value=False)
+        mock_tracer.start_as_current_span.return_value = mock_root_span_ctx
+
+        with patch.object(mod, "_OTLP_AVAILABLE", True), \
+             patch.object(mod, "TracerProvider", return_value=mock_provider), \
+             patch.object(mod, "OTLPSpanExporter", return_value=MagicMock()), \
+             patch.object(mod, "BatchSpanProcessor", return_value=MagicMock()), \
+             patch.object(mod, "Resource", MagicMock()) as mock_res:
+            mock_res.create.return_value = MagicMock()
+            mock_provider.get_tracer.return_value = mock_tracer
+
+            exporter = mod.OTLPReplayExporter()
+            exporter.export(result)
+
+        # set_status must NOT have been called on the root span (no errors)
+        mock_root_span.set_status.assert_not_called()
+
+    def test_export_with_mismatch_sets_error_status(self) -> None:
+        """Root span is marked ERROR when there are mismatches."""
+        from unittest.mock import MagicMock, patch
+        import mcp_debugger.exporters.otlp_replay_exporter as mod
+
+        result = self._make_result(matches=1, mismatches=1, with_diff=True)
+
+        mock_provider = MagicMock()
+        mock_tracer = MagicMock()
+        mock_root_span = MagicMock()
+        mock_root_span_ctx = MagicMock()
+        mock_root_span_ctx.__enter__ = MagicMock(return_value=mock_root_span)
+        mock_root_span_ctx.__exit__ = MagicMock(return_value=False)
+
+        # Child spans also use context managers
+        mock_child_span = MagicMock()
+        mock_child_ctx = MagicMock()
+        mock_child_ctx.__enter__ = MagicMock(return_value=mock_child_span)
+        mock_child_ctx.__exit__ = MagicMock(return_value=False)
+
+        # The first call is the root span, subsequent calls are child spans
+        mock_tracer.start_as_current_span.side_effect = [mock_root_span_ctx] + [mock_child_ctx] * 10
+
+        with patch.object(mod, "_OTLP_AVAILABLE", True), \
+             patch.object(mod, "TracerProvider", return_value=mock_provider), \
+             patch.object(mod, "OTLPSpanExporter", return_value=MagicMock()), \
+             patch.object(mod, "BatchSpanProcessor", return_value=MagicMock()), \
+             patch.object(mod, "Resource", MagicMock()) as mock_res, \
+             patch.object(mod, "Status", MagicMock()), \
+             patch.object(mod, "StatusCode", MagicMock()):
+            mock_res.create.return_value = MagicMock()
+            mock_provider.get_tracer.return_value = mock_tracer
+
+            exporter = mod.OTLPReplayExporter()
+            exporter.export(result)
+
+        # Root span should have had set_status called (mismatches > 0)
+        mock_root_span.set_status.assert_called_once()
+
+    def test_diff_summary_truncated_to_255(self) -> None:
+        """Diff summaries are truncated at 255 characters in span attributes."""
+        from mcp_debugger.exporters.otlp_replay_exporter import _DIFF_SUMMARY_MAX
+        assert _DIFF_SUMMARY_MAX == 255
+
+    def test_tool_name_extracted_from_params_dict(self) -> None:
+        """_emit_message_span correctly extracts tool name from dict params."""
+        from unittest.mock import MagicMock, patch
+        import mcp_debugger.exporters.otlp_replay_exporter as mod
+        from datetime import datetime, timezone
+        from mcp_debugger.replay.engine import ReplayedMessage
+
+        msg = ReplayedMessage(
+            original_message_id=5,
+            method="tools/call",
+            request_sent={"params": {"name": "write_file", "arguments": {}}},
+            original_response=None,
+            replayed_response=None,
+            latency_ms=55.0,
+            matches=True,
+        )
+
+        mock_tracer = MagicMock()
+        mock_span = MagicMock()
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_span)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+        mock_tracer.start_as_current_span.return_value = mock_ctx
+
+        with patch.object(mod, "_OTLP_AVAILABLE", True), \
+             patch.object(mod, "Status", MagicMock()), \
+             patch.object(mod, "StatusCode", MagicMock()):
+            exporter = mod.OTLPReplayExporter.__new__(mod.OTLPReplayExporter)
+            exporter._emit_message_span(mock_tracer, msg)
+
+        # Verify that start_as_current_span was called with mcp.tool.name in attrs
+        call_args = mock_tracer.start_as_current_span.call_args
+        # call_args.kwargs has the keyword arguments, call_args.args has positional
+        attrs = call_args.kwargs.get("attributes") or {}
+        if not attrs and call_args.args and len(call_args.args) > 1:
+            attrs = call_args.args[1]
+        assert attrs.get("mcp.tool.name") == "write_file"
+
+
+
+
+
