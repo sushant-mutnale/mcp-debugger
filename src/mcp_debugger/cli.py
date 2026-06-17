@@ -56,6 +56,128 @@ def version() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Config command group
+# ---------------------------------------------------------------------------
+
+config_app = typer.Typer(help="Manage mcp-debugger configuration.")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command(name="init")
+def config_init(
+    force: bool = typer.Option(False, "--force", help="Overwrite existing config without prompting"),
+) -> None:
+    """Create the default config file (~/.mcp-debugger/config.toml)."""
+    from mcp_debugger.config import Config, default_config_path
+    path = default_config_path()
+    if path.exists() and not force:
+        overwrite = typer.confirm(f"Config file already exists at {path}. Overwrite?", default=False)
+        if not overwrite:
+            console.print("[yellow]Aborted.[/yellow]")
+            raise typer.Exit(0)
+    cfg = Config(path=path)
+    cfg.reset()
+    console.print(f"[green]✓ Config file created at {path}[/green]")
+
+
+@config_app.command(name="get")
+def config_get(
+    key: str = typer.Argument(..., help="Config key in dot-notation, e.g. replay.timeout"),
+) -> None:
+    """Show the value of a config key."""
+    from mcp_debugger.config import Config, default_config_path
+    cfg = Config(path=default_config_path())
+    cfg.load()
+    value = cfg.get(key)
+    if value is None:
+        console.print(f"[yellow]Key '{key}' not found.[/yellow]")
+        raise typer.Exit(1)
+    console.print(f"{key} = {value!r}")
+
+
+@config_app.command(name="set")
+def config_set(
+    key: str = typer.Argument(..., help="Config key in dot-notation, e.g. replay.timeout"),
+    value: str = typer.Argument(..., help="Value to store (auto-converted to int/bool/float if possible)"),
+) -> None:
+    """Set a config value and save to disk."""
+    from mcp_debugger.config import Config, default_config_path
+    cfg = Config(path=default_config_path())
+    cfg.load()
+    cfg.set(key, value)
+    new_val = cfg.get(key)
+    console.print(f"[green]✓[/green] {key} = {new_val!r}")
+
+
+@config_app.command(name="unset")
+def config_unset(
+    key: str = typer.Argument(..., help="Config key to remove (reverts to default)"),
+) -> None:
+    """Remove a config key (reverts to the hardcoded default)."""
+    from mcp_debugger.config import Config, default_config_path
+    cfg = Config(path=default_config_path())
+    cfg.load()
+    removed = cfg.unset(key)
+    if removed:
+        console.print(f"[green]✓[/green] '{key}' removed from config.")
+    else:
+        console.print(f"[yellow]Key '{key}' was not found in config.[/yellow]")
+
+
+@config_app.command(name="list")
+def config_list() -> None:
+    """Show all config values in a formatted table."""
+    from mcp_debugger.config import Config, default_config_path
+    cfg = Config(path=default_config_path())
+    cfg.load()
+    data = cfg.all()
+
+    table = Table(title="mcp-debugger configuration", show_header=True, header_style="bold cyan")
+    table.add_column("Section", style="bold")
+    table.add_column("Key")
+    table.add_column("Value", style="green")
+
+    for section, section_val in data.items():
+        if not isinstance(section_val, dict):
+            continue
+        first = True
+        for k, v in section_val.items():
+            if isinstance(v, dict):
+                # nested (profiles sub-tables)
+                for sub_k, sub_v in v.items():
+                    table.add_row(
+                        section if first else "",
+                        f"{k}.{sub_k}",
+                        repr(sub_v),
+                    )
+                    first = False
+            else:
+                table.add_row(section if first else "", k, repr(v))
+                first = False
+
+    console.print(table)
+    console.print(f"\n[dim]Config file: {default_config_path()}[/dim]")
+
+
+@config_app.command(name="reset")
+def config_reset(
+    force: bool = typer.Option(False, "--force", help="Reset without prompting"),
+) -> None:
+    """Reset config to factory defaults."""
+    from mcp_debugger.config import Config, default_config_path
+    if not force:
+        confirm = typer.confirm("Reset config to defaults? This will overwrite your current config.", default=False)
+        if not confirm:
+            console.print("[yellow]Aborted.[/yellow]")
+            raise typer.Exit(0)
+    cfg = Config(path=default_config_path())
+    cfg.reset()
+    console.print("[green]✓ Config reset to defaults.[/green]")
+
+
+
+
 def convert_utc_to_local_string(utc_str: str) -> str:
     """Convert a UTC time string from SQLite into a local timezone formatted string."""
     utc_str_clean = utc_str.replace("T", " ")
@@ -751,7 +873,22 @@ def doctor() -> None:
         path_summary += ", ..."
     lines.append(Text.assemble(("✓", "green"), f" PATH includes: {path_summary}"))
 
-    # Render Panel
+    # 9. Config file check
+    from mcp_debugger.config import Config, default_config_path
+    cfg_path = default_config_path()
+    if not cfg_path.exists():
+        lines.append(Text.assemble(("✓", "green"), f" Config file: {cfg_path} [not found – using defaults]"))
+    else:
+        try:
+            _cfg_check = Config(path=cfg_path)
+            _cfg_check.load()
+            lines.append(Text.assemble(("✓", "green"), f" Config file: {cfg_path} [valid]"))
+        except Exception as cfg_err:
+            lines.append(
+                Text.assemble(("✗", "yellow"), f" Config file: {cfg_path} [invalid: {cfg_err}]")
+            )
+
+
     panel_content = Text()
     for idx, line in enumerate(lines):
         if idx > 0:
@@ -1496,9 +1633,18 @@ def export(
 ) -> None:
     """Export session data as JSON, Markdown, or OpenTelemetry (OTLP) traces."""
 
-    fmt = format.lower().strip()
+    # Config fallbacks: export.default_format and export.pretty_json
+    from mcp_debugger.config import Config, default_config_path
+    _cfg = Config(path=default_config_path())
+    _cfg.load()
+    # Only apply config default when the user didn't explicitly pass --format
+    # (typer default is "json" so we can't distinguish; treat "json" as config-eligible)
+    effective_format = format if format != "json" else str(_cfg.get("export.default_format", "json"))
+    effective_pretty = pretty or bool(_cfg.get("export.pretty_json", False))
+
+    fmt = effective_format.lower().strip()
     if fmt not in {"json", "markdown", "otlp"}:
-        console.print(f"[red]Error: unknown format '{format}'. Choose json, markdown, or otlp.[/red]")
+        console.print(f"[red]Error: unknown format '{effective_format}'. Choose json, markdown, or otlp.[/red]")
         sys.exit(1)
 
     async def _run() -> None:
@@ -1554,10 +1700,10 @@ def export(
         # ---- JSON / Markdown ------------------------------------------------
         if fmt == "json":
             from mcp_debugger.exporters.json_exporter import JSONExporter
-            exporter_obj: Any = JSONExporter(pretty=pretty, include_raw=include_raw)
+            exporter_obj: Any = JSONExporter(pretty=effective_pretty, include_raw=include_raw)
         else:
             from mcp_debugger.exporters.markdown_exporter import MarkdownExporter
-            exporter_obj = MarkdownExporter(include_raw=include_raw, pretty=pretty)
+            exporter_obj = MarkdownExporter(include_raw=include_raw, pretty=effective_pretty)
 
         if output:
             out_path = Path(output)
@@ -1584,11 +1730,14 @@ def replay(
     session_id: int = typer.Argument(
         ..., help="ID of the recorded session to replay"
     ),
-    server: str = typer.Option(
-        ..., "--server", "-s", help="Command to launch the target server"
+    server: Optional[str] = typer.Option(
+        None, "--server", "-s", help="Command to launch the target server (overrides --alias and config)"
     ),
-    timeout: int = typer.Option(
-        5000, "--timeout", help="Timeout in milliseconds per request-response pair"
+    alias: Optional[str] = typer.Option(
+        None, "--alias", "-a", help="Server alias defined in config [aliases] section"
+    ),
+    timeout: Optional[int] = typer.Option(
+        None, "--timeout", help="Timeout in milliseconds per request-response pair"
     ),
     max_messages: Optional[int] = typer.Option(
         None, "--max-messages", help="Maximum number of client messages to replay"
@@ -1614,17 +1763,47 @@ def replay(
     otlp_export: bool = typer.Option(
         False, "--otlp-export", help="Export replay results to an OTLP collector (requires mcp-debugger[otlp])"
     ),
-    otlp_endpoint: str = typer.Option(
-        "http://localhost:4317", "--otlp-endpoint", help="OTLP gRPC collector endpoint"
+    otlp_endpoint: Optional[str] = typer.Option(
+        None, "--otlp-endpoint", help="OTLP gRPC collector endpoint"
     ),
     otlp_insecure: bool = typer.Option(
         True, "--otlp-insecure/--otlp-tls", help="Disable TLS for local OTLP collectors"
     ),
-    otlp_service_name: str = typer.Option(
-        "mcp-debugger", "--otlp-service-name", help="Service name for OTLP traces"
+    otlp_service_name: Optional[str] = typer.Option(
+        None, "--otlp-service-name", help="Service name for OTLP traces"
     ),
 ) -> None:
     """Replay client messages from a recorded session against a target server."""
+
+    # ------------------------------------------------------------------
+    # Config fallbacks (CLI flags override, then config, then hardcoded defaults)
+    # ------------------------------------------------------------------
+    from mcp_debugger.config import Config, default_config_path
+    _cfg = Config(path=default_config_path())
+    _cfg.load()
+
+    # Resolve server: --server > --alias > config.replay.default_server
+    effective_server = server
+    if effective_server is None and alias is not None:
+        effective_server = _cfg.resolve_alias(alias)
+        if effective_server is None:
+            console.print(f"[red]Alias '{alias}' not found in config [aliases] section.[/red]")
+            sys.exit(1)
+    if effective_server is None:
+        effective_server = _cfg.get("replay.default_server", "") or None
+    if not effective_server:
+        console.print(
+            "[red]Error: No server specified. Use --server, --alias, or set replay.default_server in config.[/red]"
+        )
+        sys.exit(1)
+
+    # Numeric and boolean fallbacks
+    effective_timeout: int = timeout if timeout is not None else int(_cfg.get("replay.timeout", 5000))
+    effective_save: bool = save or bool(_cfg.get("replay.auto_save", False))
+    effective_no_diff: bool = no_diff or bool(_cfg.get("replay.diff_only", False))
+    effective_otlp_export: bool = otlp_export or bool(_cfg.get("replay.otlp_export", False))
+    effective_otlp_endpoint: str = otlp_endpoint or str(_cfg.get("replay.otlp_endpoint", "http://localhost:4317"))
+    effective_otlp_service_name: str = otlp_service_name or str(_cfg.get("replay.otlp_service_name", "mcp-debugger"))
 
     def format_payload(val: Any) -> str:
         if val is None:
@@ -1684,11 +1863,11 @@ def replay(
 
         result = await engine.replay(
             session_id=session_id,
-            target_server_command=server,
-            timeout_ms=timeout,
+            target_server_command=effective_server,
+            timeout_ms=effective_timeout,
             replay_mode=replay_mode,
             message_filter=message_filter,
-            persist=save,
+            persist=effective_save,
             max_messages=max_messages,
             on_message_replayed=on_message_replayed,
         )
@@ -1748,7 +1927,7 @@ def replay(
             json_report = {
                 "session_id": session_id,
                 "source_server_command": session["server_command"],
-                "target_server_command": server,
+                "target_server_command": effective_server,
                 "started_at": result.started_at.isoformat().replace("+00:00", "Z"),
                 "ended_at": result.ended_at.isoformat().replace("+00:00", "Z"),
                 "duration_seconds": round(duration, 2),
@@ -1783,7 +1962,7 @@ def replay(
             summary_lines = [
                 f"Replay of Session #{session_id}",
                 f"Source server: {session['server_command']}",
-                f"Target server: {server}",
+                f"Target server: {effective_server}",
                 f"Duration: {duration:.2f} seconds",
                 "─" * 65,
                 f"Total messages replayed: {result.total_messages_replayed}",
@@ -1806,7 +1985,7 @@ def replay(
                         run_console.print(f"[green]✓[/green] Message #{m.original_message_id}: {m.method}")
                 else:
                     run_console.print(f"\n[red]✗[/red] Message #{m.original_message_id}: {m.method} (client → server)")
-                    if not no_diff:
+                    if not effective_no_diff:
                         # Show mismatch details
                         if m.method == "tools/call" and m.request_sent:
                             params = m.request_sent.get("params", {})
@@ -1828,12 +2007,12 @@ def replay(
                             run_console.print(indent_text(m.diff_text, 2))
                         run_console.print()
 
-            if no_diff:
+            if effective_no_diff:
                 mismatched_ids = [m.original_message_id for m in result.messages if not m.matches]
                 if mismatched_ids:
                     run_console.print(f"\nMismatched Message IDs: {mismatched_ids}")
 
-            if save and result.replay_id is not None and result.replay_id != -1:
+            if effective_save and result.replay_id is not None and result.replay_id != -1:
                 run_console.print(f"\nReplay saved as replay ID {result.replay_id}. Use 'mcp-debugger replay show {result.replay_id}' to view later.")
 
             if output:
@@ -1848,16 +2027,16 @@ def replay(
         # 1 if any mismatch (i.e. mismatches > 0)
 
         # --- OTLP export (optional, non-blocking) ---
-        if otlp_export:
+        if effective_otlp_export:
             try:
                 from mcp_debugger.exporters.otlp_replay_exporter import OTLPReplayExporter
                 exporter_otlp = OTLPReplayExporter(
-                    endpoint=otlp_endpoint,
+                    endpoint=effective_otlp_endpoint,
                     insecure=otlp_insecure,
-                    service_name=otlp_service_name,
+                    service_name=effective_otlp_service_name,
                 )
                 span_count = exporter_otlp.export(result)
-                console.print(f"[dim]OTLP: exported {span_count} spans to {otlp_endpoint}[/dim]")
+                console.print(f"[dim]OTLP: exported {span_count} spans to {effective_otlp_endpoint}[/dim]")
             except ImportError as ie:
                 console.print(f"[yellow]Warning: {ie}[/yellow]")
             except Exception as oe:

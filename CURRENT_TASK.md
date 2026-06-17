@@ -1,157 +1,224 @@
-Day 19: OpenTelemetry Export for Replay Results
-You have a fully functional replay system (Days 15–18) that can test server changes and report mismatches. But the results are currently siloed – they live in the terminal or the local database. For teams with existing observability stacks (Jaeger, Tempo, Datadog), they want to see replay results as traces alongside their service metrics.
+Day 20: Configuration Management – Making the Tool Your Own
+You have a feature‑rich tool now: recording, inspection, validation, error classification, statistics, export, replay with diff, and OTLP export. But users are typing long commands with many flags every time. They want defaults: “I always use --timeout 10000”, “I want OTLP export enabled by default”, “I have a preferred server command I use for replay”.
 
-Day 19 adds OpenTelemetry export for replay results – converting replay runs into trace data that can be visualised in Jaeger, Grafana, or any OTLP-compatible backend. This allows teams to:
+Day 20 adds a central configuration system – a user‑editable config.toml file that stores defaults for all commands, server aliases, and user preferences. This makes mcp-debugger feel polished and professional.
 
-Track regression trends – see how mismatch counts change over time (via trace attributes).
-
-Correlate with deployments – tie replay failures to specific server versions.
-
-Alert on regressions – OTLP exporters can integrate with alerting systems.
-
-By the end of Day 19, you can run:
+By the end of Day 20, users can:
 
 bash
-mcp-debugger replay 42 --server "..." --otlp-endpoint http://jaeger:4317
-and see a trace in Jaeger showing each replayed message as a span, with diff summaries as span attributes/events.
+mcp-debugger config init                  # create default config
+mcp-debugger config set replay.timeout 10000
+mcp-debugger config set replay.default_server "npx -y @modelcontextprotocol/server-filesystem /tmp"
+mcp-debugger config set alias.fs "npx -y @modelcontextprotocol/server-filesystem /tmp"
+mcp-debugger config set alias.gh "npx -y @modelcontextprotocol/server-github"
 
+mcp-debugger replay 42 --alias fs         # uses the alias
+mcp-debugger replay 42                    # uses replay.default_server if set
 🎯 Core Objective
-Extend the replay command (and optionally replay show) with OpenTelemetry export:
+Build a configuration management system with:
 
-Feature	Description
-OTLP export	Send replay results to an OTLP collector (gRPC or HTTP) using the OpenTelemetry SDK.
-Trace structure	Each replay run = a trace. Each replayed message = a span (or a pair of request/response spans).
-Attributes	Include mismatch status, latency, method name, tool name, diff summary (truncated).
-Events	For mismatched responses, add an event with the diff details.
-Flags	--otlp-endpoint, --otlp-insecure, --otlp-service-name, --otlp-export (or detect automatically if OTEL_EXPORTER_OTLP_ENDPOINT env var is set).
-Fallback	If OTLP export fails (e.g., collector unreachable), still complete replay and print a warning.
+Component	Description
+Config file	~/.mcp-debugger/config.toml – TOML format, human‑editable.
+Config commands	mcp-debugger config init, config get, config set, config list, config reset.
+Default values	Sensible defaults for all flags (timeout, OTLP endpoint, etc.).
+Aliases	Short names for server commands (e.g., fs → npx -y .../server-filesystem /tmp).
+Integration	All CLI commands read config values as fallbacks if flags are not provided.
+Precedence	CLI flags > Config file > Hardcoded defaults.
+Doctor integration	mcp-debugger doctor now checks config file validity.
 Deliverables by end of day:
 
-src/mcp_debugger/exporters/otlp_replay_exporter.py – module to convert ReplayResult to OTLP spans.
+src/mcp_debugger/config.py – Config class with load/save/get/set.
 
-Integration with replay command (new options).
+CLI commands: config init, config get, config set, config list, config reset.
 
-Unit tests for OTLP exporter (mocked gRPC).
+Update all existing commands to read from config.
+
+Unit tests for config module.
 
 Documentation.
 
 🧠 Expected Behaviour
-1. OpenTelemetry Integration Design
-Trace root: One trace per replay run. Use the replay_id or a generated UUID as the trace ID.
+1. Config File Structure (~/.mcp-debugger/config.toml)
+toml
+# mcp-debugger configuration
+# Generated with `mcp-debugger config init`
 
-Spans:
+[general]
+# Default output format for commands that support it
+# Values: "rich", "json"
+default_output = "rich"
 
-Root span: Represents the entire replay run. Attributes: replay.source_session_id, replay.target_server_command, replay.total_messages, replay.mismatches, replay.timeouts, replay.errors, replay.match_percentage.
+# Whether to enable colours (auto-detected if not set)
+color = true
 
-Child spans: For each replayed message (or pair of request/response), create a child span.
+[proxy]
+# Default timeout for proxy operations (milliseconds)
+timeout = 5000
 
-Span name: mcp.replay.{method} (e.g., mcp.replay.tools/call).
+# Whether to show verbose output during proxy run
+verbose = false
 
-Attributes:
+# Default name for sessions (if not provided via --name)
+default_session_name = "mcp-session"
 
-mcp.method (string)
+[replay]
+# Default timeout per request-response (milliseconds)
+timeout = 5000
 
-mcp.direction (always client_to_server for replay)
+# Default server command for replay (can be overridden by --server or --alias)
+default_server = ""
 
-mcp.tool.name (if method is tools/call)
+# Whether to auto-save replay results
+auto_save = false
 
-mcp.replay.matched (boolean)
+# Whether to show diff-only output by default
+diff_only = false
 
-mcp.replay.latency_ms (float)
+# Default OTLP endpoint
+otlp_endpoint = "http://localhost:4317"
 
-mcp.replay.original_response_hash (optional, for grouping)
+# Default OTLP service name
+otlp_service_name = "mcp-debugger"
 
-mcp.replay.diff_summary (truncated diff string, max 255 chars)
+# Whether to enable OTLP export by default
+otlp_export = false
 
-Events:
+[export]
+# Default export format (json, markdown, otlp)
+default_format = "json"
 
-If mismatched: add an event mcp.replay.diff with the diff as a structured attribute (or as a JSON string).
+# Whether to pretty-print JSON by default
+pretty_json = true
 
-Span status: If any mismatch or error, set span status to Error with description.
+[validate]
+# Whether to use strict mode (fail on warnings) or permissive mode (warnings only)
+strict = false
 
-2. Export Configuration
-Endpoint: Use --otlp-endpoint (default http://localhost:4317 for gRPC, or http://localhost:4318/v1/traces for HTTP). The user can also set OTEL_EXPORTER_OTLP_ENDPOINT env var.
+# Whether to run validation on recorded sessions by default
+auto_validate = false
 
-Protocol: Support both gRPC and HTTP/protobuf. Use opentelemetry-exporter-otlp-proto-grpc and opentelemetry-exporter-otlp-proto-http as optional dependencies.
+[doctor]
+# Whether to check for optional dependencies (npx, node, etc.)
+check_optional = true
 
-Service name: --otlp-service-name (default mcp-debugger).
+# Path to Node.js executable (auto-detected if empty)
+node_path = ""
 
-Insecure: --otlp-insecure (disable TLS for local testing).
+[aliases]
+# Short names for server commands
+# Usage: mcp-debugger replay 42 --alias fs
+fs = "npx -y @modelcontextprotocol/server-filesystem /tmp"
+gh = "npx -y @modelcontextprotocol/server-github"
+pg = "npx -y @modelcontextprotocol/server-postgres postgresql://localhost/mcp"
+fetch = "npx -y @modelcontextprotocol/server-fetch"
 
-3. Integration with replay Command
-Add new options to mcp-debugger replay:
+[profiles]
+# Replay profiles (also accessible via `replay profile` commands)
+# Replay profiles are stored here for consistency
+[profiles.prod]
+server = "npx -y @modelcontextprotocol/server-filesystem /prod/data"
+timeout = 10000
+2. Config Commands
+Command	Behaviour
+mcp-debugger config init	Create default config file in ~/.mcp-debugger/config.toml (if missing). If file exists, prompt before overwriting (or use --force).
+mcp-debugger config get <key>	Show the value of a specific config key (e.g., config get replay.timeout). If key is nested, use dot notation.
+mcp-debugger config set <key> <value>	Set a config value. Creates the key if it doesn't exist.
+mcp-debugger config list	Show all config values in a formatted table.
+mcp-debugger config reset	Reset config to defaults (prompt before overwriting).
+mcp-debugger config unset <key>	Remove a config key (revert to default).
+Examples:
 
-Option	Type	Default	Description
---otlp-export	flag	False	Enable OTLP export (if not set, no export).
---otlp-endpoint	str	http://localhost:4317	OTLP collector endpoint.
---otlp-insecure	flag	False	Disable TLS.
---otlp-service-name	str	mcp-debugger	Service name for traces.
-If --otlp-export is given but the OTLP libraries are not installed, print a helpful error and suggest pip install mcp-debugger[otlp].
+bash
+mcp-debugger config set replay.timeout 10000
+mcp-debugger config set aliases.fs "npx -y @modelcontextprotocol/server-filesystem /tmp"
+mcp-debugger config get replay.default_server
+mcp-debugger config list
+3. Integration with CLI Commands
+Every CLI command will now:
 
-Behaviour:
+Load config at startup (cached to avoid repeated file reads).
 
-After replay completes, export the trace asynchronously (do not block the CLI).
+For each flag, check if the flag was provided by the user. If not, check the config for a matching key. If still not found, use the hardcoded default.
 
-If export fails (e.g., connection refused), print a warning but do not affect exit code (unless --otlp-export is required, but keep it optional).
+Precedence: CLI flag > Config file > Code default.
 
-The trace should be exported even if there are mismatches – that’s the point.
+Example for replay command:
 
-4. Export Replay Results from Saved Replays
-Add --otlp-export to replay show as well – this allows re‑exporting a saved replay without re‑running the server. The exporter will read from the replay_messages table and generate the same trace structure.
+python
+# In replay command
+timeout = ctx.obj["timeout"] or config.get("replay.timeout", 5000)
+server = server or config.get("replay.default_server")
+4. Config Validation
+On load, validate that the config file is valid TOML.
+
+If invalid, print a warning and use defaults.
+
+The doctor command should check config validity and report any issues.
+
+5. Alias Resolution
+When a command receives --alias <name>:
+
+Look up <name> in config.aliases.
+
+If found, use the alias value as the server command.
+
+If --server is also provided, --server takes precedence (or vice versa – decide: alias is a shorthand, so --server overrides).
+
+6. Profiles (Optional)
+Replay profiles (Day 18) are now stored in the same config file under [profiles]. The replay profile commands read/write from the config. This consolidates storage.
 
 🔗 Integration with Previous Days
-Day 15/17 (Replay): ReplayResult contains all data needed for export.
+All days: Every command that accepts flags now reads from config.
 
-Day 3 (Database): If exporting from saved replays, fetch data from replays and replay_messages.
+Day 10 (Validate): validate.strict and validate.auto_validate config keys.
 
-Day 16 (Diff): Diff data is stored/available for mismatched messages.
+Day 17/18 (Replay): replay.* config keys.
+
+Day 13 (Export): export.* config keys.
+
+Day 7 (Doctor): Now checks config validity and reports issues.
 
 ⚙️ Production Considerations
-Dependencies
-Add to pyproject.toml as optional otlp group:
+Config File Location
+Linux/macOS: ~/.mcp-debugger/config.toml
 
-toml
-[project.optional-dependencies]
-otlp = [
-    "opentelemetry-api>=1.20.0",
-    "opentelemetry-sdk>=1.20.0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
-]
+Windows: %APPDATA%\mcp-debugger\config.toml (use appdirs library to handle cross‑platform). For MVP, assume Linux/macOS; mention Windows support later.
+
+File Permissions
+Config file may contain sensitive data (e.g., PostgreSQL connection strings). Set permissions to 0o600 (owner read/write only) on creation.
+
 Performance
-Exporting a trace with hundreds of spans can be slow. The exporter should send spans in batches (the SDK handles this).
+Load config once at CLI startup and cache it.
 
-Use opentelemetry.sdk.trace.export.BatchSpanProcessor to avoid blocking.
+On config set, write to file immediately (but keep cache in sync).
 
 Error Handling
-If OTLP endpoint is unreachable, log error but do not crash the replay.
+If config file is missing, treat as empty (all defaults).
 
-If the user does not have the OTLP dependencies installed, print clear instructions.
+If config file is corrupt, print a warning and use defaults.
 
-Span Attributes Limits
-The diff summary could be long. Truncate to 255 characters.
+If config set fails (e.g., permission denied), print error and exit.
 
-The full diff can be stored as an event with a JSON payload (but OTLP limits event size). Keep it optional.
+Forward Compatibility
+If a new config key is added in a future version, old config files should still work (ignore unknown keys). Use tomllib with parse_float or custom handling.
 
-Backward Compatibility
-The replay command remains functional without OTLP. No required changes.
-
-✅ Day 19 Verification Checklist
+✅ Day 20 Verification Checklist
 #	Check	How to verify
-1	OTLP export is optional; replay works without --otlp-export	Run replay without flag – no OTLP libraries attempted.
-2	When --otlp-export is given, trace appears in Jaeger	Run Jaeger locally (e.g., docker run -p 16686:16686 -p 4317:4317 jaegertracing/all-in-one), replay with --otlp-export, view in Jaeger UI.
-3	Trace root span has correct attributes (session id, mismatches, etc.)	Inspect in Jaeger.
-4	Each message has a child span with method name, matched flag, latency	Check Jaeger.
-5	Mismatched messages have an event with diff	View span events.
-6	Span status is Error if mismatch or timeout	Jaeger shows red spans for errors.
-7	--otlp-endpoint overrides default	Export to a different collector works.
-8	--otlp-insecure disables TLS (for local testing)	Works with local HTTP endpoint.
-9	Export from saved replay (replay show --otlp-export) works	Same trace structure as live replay.
-10	Missing OTLP dependencies show helpful error	Install base package without [otlp], run --otlp-export – error message appears.
-11	Unit tests for exporter (mock OTLP)	pytest tests/test_exporters.py::test_otlp_replay passes.
-12	Integration test: replay with OTLP export to a mock collector	Check that spans are sent.
-13	mypy --strict passes (with stubs for OTLP)	–
-14	ruff check passes	–
-15	Documentation updated (docs/replay.md with OTLP section)	–
-16	Commit with message feat(otlp): add OpenTelemetry export for replay results	–
-🚀 After Day 19 – Immediate Next Steps
+1	mcp-debugger config init creates ~/.mcp-debugger/config.toml	File exists, contains all sections.
+2	mcp-debugger config list shows all config values in a table	Output includes general, proxy, replay, aliases, etc.
+3	mcp-debugger config get replay.timeout returns the value	Correct value printed.
+4	mcp-debugger config set replay.timeout 10000 updates the file	get now returns 10000.
+5	CLI commands respect config values	Run mcp-debugger replay 42 (without flags) – uses replay.default_server if set.
+6	CLI flags override config values	mcp-debugger replay 42 --timeout 2000 uses 2000, not config.
+7	Aliases work: mcp-debugger replay 42 --alias fs	Resolves to server command from aliases.fs.
+8	--alias with --server – --server wins	Confirm precedence.
+9	config unset replay.timeout removes the key	get now returns default (5000).
+10	config reset restores defaults	All keys revert to original defaults.
+11	doctor reports config file status	Shows ✓ Config file valid or ✗ Config file invalid.
+12	Config file permissions are 600	ls -l ~/.mcp-debugger/config.toml → -rw-------.
+13	Corrupt config file is handled gracefully	Edit file to invalid TOML, run mcp-debugger replay – warning printed, defaults used.
+14	Unit tests for config module (load, save, get, set)	pytest tests/test_config.py passes.
+15	mypy --strict passes	–
+16	ruff check passes	–
+17	Documentation updated (docs/config.md with all keys and examples)	–
+18	Commit with message feat(config): add configuration management	–
