@@ -43,6 +43,7 @@ def mock_db_path(tmp_path: Path) -> Generator[str, None, None]:
     """Fixture to mock the Database path to use a temporary file for isolation."""
     from typing import Any, Optional
     from unittest.mock import patch
+
     temp_db_file = tmp_path / "test_sessions.db"
     original_init = Database.__init__
 
@@ -51,4 +52,3 @@ def mock_db_path(tmp_path: Path) -> Generator[str, None, None]:
 
     with patch("mcp_debugger.storage.database.Database.__init__", mock_init):
         yield str(temp_db_file)
-

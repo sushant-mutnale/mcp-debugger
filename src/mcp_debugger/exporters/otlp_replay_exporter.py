@@ -82,8 +82,7 @@ class OTLPReplayExporter:
     ) -> None:
         if not _OTLP_AVAILABLE:
             raise ImportError(
-                "OpenTelemetry SDK is not installed. "
-                "Run: pip install 'mcp-debugger[otlp]'"
+                "OpenTelemetry SDK is not installed. Run: pip install 'mcp-debugger[otlp]'"
             )
         self.endpoint = endpoint
         self.insecure = insecure

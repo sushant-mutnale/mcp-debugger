@@ -107,13 +107,10 @@ def test_cli_config_list_and_reset(runner: CliRunner, tmp_path, monkeypatch) -> 
 def test_cli_config_list_nested(runner: CliRunner, monkeypatch) -> None:
     """Verify nested configuration tables are rendered correctly in list subcommand."""
     from mcp_debugger.config import Config
+
     mock_data = {
-        "section_a": {
-            "nested_key": {
-                "sub_key": "sub_value"
-            }
-        },
-        "section_b": "not-a-dict-so-it-is-skipped"
+        "section_a": {"nested_key": {"sub_key": "sub_value"}},
+        "section_b": "not-a-dict-so-it-is-skipped",
     }
     # Mock Config.all method
     monkeypatch.setattr(Config, "all", lambda self: mock_data)

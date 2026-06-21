@@ -82,7 +82,7 @@ class ComparisonStats(BaseModel):
 
 def generate_sparkline(values: List[float], width: int = 30) -> str:
     """Generate a horizontal Unicode sparkline representing values over time.
-    
+
     If length of values is greater than target width, downsamples by averaging.
     """
     if not values:
@@ -122,7 +122,9 @@ def generate_sparkline(values: List[float], width: int = 30) -> str:
     return "".join(sparkline)
 
 
-def generate_bar_chart(counts: Dict[str, int], max_width: int = 30) -> List[Tuple[str, int, float, str]]:
+def generate_bar_chart(
+    counts: Dict[str, int], max_width: int = 30
+) -> List[Tuple[str, int, float, str]]:
     """Generate bar chart segments (label, count, percentage, bar_string) sorted by count descending."""
     if not counts:
         return []
@@ -181,18 +183,14 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
                     is_err = True
             except Exception:
                 pass
-        
+
         # We only look at response messages (server_to_client) or requests that errored for trend
         # For simplicity, track error flags for all server_to_client responses chronologically
         if direction == "server_to_client":
             chrono_errors.append(1 if is_err else 0)
 
     # Compute latency list
-    latency_list = [
-        msg["latency_ms"]
-        for msg in messages
-        if msg.get("latency_ms") is not None
-    ]
+    latency_list = [msg["latency_ms"] for msg in messages if msg.get("latency_ms") is not None]
 
     # Compute tool usage metrics
     # Query all request-response pairs for tools/call
@@ -285,7 +283,11 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
     if duration_sec is None and session.get("started_at"):
         try:
             started = datetime.strptime(session["started_at"], "%Y-%m-%d %H:%M:%S")
-            ended = datetime.strptime(session["ended_at"], "%Y-%m-%d %H:%M:%S") if session.get("ended_at") else datetime.now()
+            ended = (
+                datetime.strptime(session["ended_at"], "%Y-%m-%d %H:%M:%S")
+                if session.get("ended_at")
+                else datetime.now()
+            )
             duration_sec = int((ended - started).total_seconds())
         except Exception:
             pass
@@ -386,7 +388,11 @@ def compare_sessions_stats(stats_a: SessionStats, stats_b: SessionStats) -> Comp
                 change_str = "no change"
 
             lat_change_pct = None
-            if ta.avg_latency_ms is not None and tb.avg_latency_ms is not None and ta.avg_latency_ms > 0:
+            if (
+                ta.avg_latency_ms is not None
+                and tb.avg_latency_ms is not None
+                and ta.avg_latency_ms > 0
+            ):
                 lat_change_pct = ((tb.avg_latency_ms - ta.avg_latency_ms) / ta.avg_latency_ms) * 100
 
             tool_changes.append(

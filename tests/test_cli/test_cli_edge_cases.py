@@ -16,14 +16,20 @@ from mcp_debugger.protocol.validator import ValidationResult
 # 1. PROXY COMMAND EDGE CASES
 # ===========================================================================
 
+
 def test_proxy_database_session_failure(runner: CliRunner) -> None:
     """Verify that proxy exits with code 1 if create_session fails (returns -1)."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.create_session", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "mcp_debugger.storage.database.Database.create_session", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = -1
             result = runner.invoke(app, ["proxy", "--server", "dummy-server"])
             assert result.exit_code == 1
-            assert "Failed to create database session" in result.stdout or "Failed to create database session" in result.stderr
+            assert (
+                "Failed to create database session" in result.stdout
+                or "Failed to create database session" in result.stderr
+            )
 
 
 def test_proxy_keyboard_interrupt(runner: CliRunner) -> None:
@@ -37,10 +43,13 @@ def test_proxy_keyboard_interrupt(runner: CliRunner) -> None:
 # 2. LIST COMMAND EDGE CASES
 # ===========================================================================
 
+
 def test_list_database_error(runner: CliRunner) -> None:
     """Verify that list exits with code 1 and suggestion on DatabaseError."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_sessions", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_sessions", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.side_effect = sqlite3.DatabaseError("Corrupt DB")
             result = runner.invoke(app, ["list"])
             assert result.exit_code == 1
@@ -49,7 +58,9 @@ def test_list_database_error(runner: CliRunner) -> None:
 
 def test_list_general_exception(runner: CliRunner) -> None:
     """Verify that list exits with code 1 on generic connect Exception."""
-    with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock) as mock_connect:
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock
+    ) as mock_connect:
         mock_connect.side_effect = Exception("Connect error")
         result = runner.invoke(app, ["list"])
         assert result.exit_code == 1
@@ -60,10 +71,13 @@ def test_list_general_exception(runner: CliRunner) -> None:
 # 3. INSPECT COMMAND EDGE CASES
 # ===========================================================================
 
+
 def test_inspect_database_error(runner: CliRunner) -> None:
     """Verify that inspect handles database errors gracefully."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.side_effect = sqlite3.DatabaseError("Corrupt DB")
             result = runner.invoke(app, ["inspect", "1"])
             assert result.exit_code == 1
@@ -72,7 +86,9 @@ def test_inspect_database_error(runner: CliRunner) -> None:
 
 def test_inspect_general_exception(runner: CliRunner) -> None:
     """Verify that inspect handles database connect exceptions."""
-    with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock) as mock_connect:
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock
+    ) as mock_connect:
         mock_connect.side_effect = Exception("Connect error")
         result = runner.invoke(app, ["inspect", "1"])
         assert result.exit_code == 1
@@ -82,7 +98,9 @@ def test_inspect_general_exception(runner: CliRunner) -> None:
 def test_inspect_session_not_found(runner: CliRunner) -> None:
     """Verify that inspect exits with code 1 if session is missing."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.return_value = None
             result = runner.invoke(app, ["inspect", "999"])
             assert result.exit_code == 1
@@ -92,9 +110,13 @@ def test_inspect_session_not_found(runner: CliRunner) -> None:
 def test_inspect_fetch_messages_failure(runner: CliRunner) -> None:
     """Verify that inspect handles message query failure gracefully."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.return_value = {"id": 1}
-            with patch("mcp_debugger.storage.database.Database.get_messages", new_callable=AsyncMock) as mock_msgs:
+            with patch(
+                "mcp_debugger.storage.database.Database.get_messages", new_callable=AsyncMock
+            ) as mock_msgs:
                 mock_msgs.side_effect = Exception("Fetch error")
                 result = runner.invoke(app, ["inspect", "1"])
                 assert result.exit_code == 1
@@ -104,16 +126,24 @@ def test_inspect_fetch_messages_failure(runner: CliRunner) -> None:
 def test_inspect_empty_messages(runner: CliRunner, tmp_path: Path) -> None:
     """Verify inspect output formatting when no messages are found."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.return_value = {"id": 1}
-            with patch("mcp_debugger.storage.database.Database.get_messages", new_callable=AsyncMock) as mock_msgs:
+            with patch(
+                "mcp_debugger.storage.database.Database.get_messages", new_callable=AsyncMock
+            ) as mock_msgs:
                 mock_msgs.return_value = []
-                with patch("mcp_debugger.storage.database.Database.get_errors", new_callable=AsyncMock) as mock_errs:
+                with patch(
+                    "mcp_debugger.storage.database.Database.get_errors", new_callable=AsyncMock
+                ) as mock_errs:
                     mock_errs.return_value = []
 
                     # Test output file with json mode
                     out_json = tmp_path / "empty.json"
-                    result = runner.invoke(app, ["inspect", "1", "--json", "--output", str(out_json)])
+                    result = runner.invoke(
+                        app, ["inspect", "1", "--json", "--output", str(out_json)]
+                    )
                     assert result.exit_code == 0
                     assert out_json.read_text(encoding="utf-8") == "[]\n"
 
@@ -147,15 +177,27 @@ def test_inspect_json_modes_and_failures(runner: CliRunner, tmp_path: Path) -> N
     ]
 
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.return_value = {"id": 1}
-            with patch("mcp_debugger.storage.database.Database.get_messages", new_callable=AsyncMock, return_value=mock_messages):
-                with patch("mcp_debugger.storage.database.Database.get_errors", new_callable=AsyncMock) as mock_errs:
-                    mock_errs.side_effect = Exception("Get errors failed")  # triggers fallback error_map = {}
+            with patch(
+                "mcp_debugger.storage.database.Database.get_messages",
+                new_callable=AsyncMock,
+                return_value=mock_messages,
+            ):
+                with patch(
+                    "mcp_debugger.storage.database.Database.get_errors", new_callable=AsyncMock
+                ) as mock_errs:
+                    mock_errs.side_effect = Exception(
+                        "Get errors failed"
+                    )  # triggers fallback error_map = {}
 
                     # Test with output file redirection
                     out_file = tmp_path / "messages.json"
-                    result = runner.invoke(app, ["inspect", "1", "--json", "--output", str(out_file)])
+                    result = runner.invoke(
+                        app, ["inspect", "1", "--json", "--output", str(out_file)]
+                    )
                     assert result.exit_code == 0
                     data = json.loads(out_file.read_text(encoding="utf-8"))
                     assert len(data) == 1
@@ -177,15 +219,25 @@ def test_inspect_rich_rendering_and_fallbacks(runner: CliRunner) -> None:
             "params": None,
             "result": None,
             "error": None,
-            "timestamp": "invalid_timestamp_str", # will raise Exception in datetime.fromtimestamp
+            "timestamp": "invalid_timestamp_str",  # will raise Exception in datetime.fromtimestamp
             "latency_ms": 10.0,
         }
     ]
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.return_value = {"id": 1}
-            with patch("mcp_debugger.storage.database.Database.get_messages", new_callable=AsyncMock, return_value=mock_messages):
-                with patch("mcp_debugger.storage.database.Database.get_errors", new_callable=AsyncMock, return_value=[]):
+            with patch(
+                "mcp_debugger.storage.database.Database.get_messages",
+                new_callable=AsyncMock,
+                return_value=mock_messages,
+            ):
+                with patch(
+                    "mcp_debugger.storage.database.Database.get_errors",
+                    new_callable=AsyncMock,
+                    return_value=[],
+                ):
                     result = runner.invoke(app, ["inspect", "1"])
                     assert result.exit_code == 0
                     assert "invalid_timestamp_str" in result.stdout
@@ -194,6 +246,7 @@ def test_inspect_rich_rendering_and_fallbacks(runner: CliRunner) -> None:
 # ===========================================================================
 # 4. DOCTOR COMMAND EDGE CASES
 # ===========================================================================
+
 
 def test_doctor_python_version_check_fail(runner: CliRunner) -> None:
     """Verify doctor command fails if python version is < 3.11."""
@@ -249,13 +302,15 @@ def test_doctor_database_directories_and_permission_denied(runner: CliRunner) ->
 
 def test_doctor_permissions_and_schema_errors(runner: CliRunner) -> None:
     """Verify permissions too open warnings (Posix) and schema check failures."""
-    
+
     # 1. Database file check: exists but permissions check throws exception
     class MockOSError:
         def __init__(self):
             self.name = "posix"
+
         def stat(self, *args, **kwargs):
             raise Exception("Stat error")
+
         def __getattr__(self, name):
             return getattr(os, name)
 
@@ -271,10 +326,12 @@ def test_doctor_permissions_and_schema_errors(runner: CliRunner) -> None:
     class MockOSTooOpen:
         def __init__(self):
             self.name = "posix"
+
         def stat(self, *args, **kwargs):
             mock_res = MagicMock()
-            mock_res.st_mode = 0o777 # too open
+            mock_res.st_mode = 0o777  # too open
             return mock_res
+
         def __getattr__(self, name):
             return getattr(os, name)
 
@@ -328,6 +385,7 @@ def test_doctor_missing_binaries_and_sqlite(runner: CliRunner) -> None:
 # 5. VALIDATE COMMAND EDGE CASES & COMPLIANCE SCORE
 # ===========================================================================
 
+
 def test_validate_mutual_exclusion(runner: CliRunner) -> None:
     """Verify validate command enforces mutual exclusion of arguments."""
     # Both provided
@@ -343,7 +401,9 @@ def test_validate_mutual_exclusion(runner: CliRunner) -> None:
 
 def test_validate_live_exception(runner: CliRunner) -> None:
     """Verify live validation handles exceptions gracefully."""
-    with patch("mcp_debugger.validate_live.run_live_validation", side_effect=Exception("Validation crash")):
+    with patch(
+        "mcp_debugger.validate_live.run_live_validation", side_effect=Exception("Validation crash")
+    ):
         result = runner.invoke(app, ["validate", "--server", "dummy"])
         assert result.exit_code == 1
         assert "Error during live validation" in result.stdout
@@ -351,7 +411,9 @@ def test_validate_live_exception(runner: CliRunner) -> None:
 
 def test_validate_database_connect_failure(runner: CliRunner) -> None:
     """Verify validate handles DB connection errors."""
-    with patch("mcp_debugger.storage.database.Database.connect", side_effect=Exception("Connect crash")):
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", side_effect=Exception("Connect crash")
+    ):
         result = runner.invoke(app, ["validate", "1"])
         assert result.exit_code == 1
         assert "Error connecting to database" in result.stdout
@@ -360,7 +422,11 @@ def test_validate_database_connect_failure(runner: CliRunner) -> None:
 def test_validate_session_not_found(runner: CliRunner) -> None:
     """Verify validate handles missing sessions."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value=None):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
             result = runner.invoke(app, ["validate", "999"])
             assert result.exit_code == 1
             assert "Session #999 not found" in result.stdout
@@ -369,8 +435,15 @@ def test_validate_session_not_found(runner: CliRunner) -> None:
 def test_validate_engine_exception(runner: CliRunner) -> None:
     """Verify validate handles engine validation errors."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
-            with patch("mcp_debugger.protocol.validator.ProtocolValidator.validate_session", side_effect=Exception("Engine crash")):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
+            with patch(
+                "mcp_debugger.protocol.validator.ProtocolValidator.validate_session",
+                side_effect=Exception("Engine crash"),
+            ):
                 result = runner.invoke(app, ["validate", "1"])
                 assert result.exit_code == 1
                 assert "Error validating session" in result.stdout
@@ -379,7 +452,11 @@ def test_validate_engine_exception(runner: CliRunner) -> None:
 def test_calculate_compliance_score_logic() -> None:
     """Test calculate_compliance_score custom scoring mechanics."""
     # Critical failures causing 0% score
-    startup_fail = [ValidationResult(rule_name="server_startup", passed=False, severity="critical", message="Fail")]
+    startup_fail = [
+        ValidationResult(
+            rule_name="server_startup", passed=False, severity="critical", message="Fail"
+        )
+    ]
     score, passed, total = calculate_compliance_score(startup_fail)
     assert score == 0
     assert passed == 0
@@ -387,11 +464,21 @@ def test_calculate_compliance_score_logic() -> None:
 
     # Test categorization rule sets
     res = [
-        ValidationResult(rule_name="jsonrpc_version", passed=False, severity="critical", message="Fail"),
-        ValidationResult(rule_name="envelope_type", passed=False, severity="critical", message="Fail"),
-        ValidationResult(rule_name="initialize_first", passed=False, severity="critical", message="Fail"),
-        ValidationResult(rule_name="handshake_order", passed=False, severity="critical", message="Fail"),
-        ValidationResult(rule_name="tool_schema_validity", passed=False, severity="critical", message="Fail"),
+        ValidationResult(
+            rule_name="jsonrpc_version", passed=False, severity="critical", message="Fail"
+        ),
+        ValidationResult(
+            rule_name="envelope_type", passed=False, severity="critical", message="Fail"
+        ),
+        ValidationResult(
+            rule_name="initialize_first", passed=False, severity="critical", message="Fail"
+        ),
+        ValidationResult(
+            rule_name="handshake_order", passed=False, severity="critical", message="Fail"
+        ),
+        ValidationResult(
+            rule_name="tool_schema_validity", passed=False, severity="critical", message="Fail"
+        ),
     ]
     score, passed, total = calculate_compliance_score(res)
     assert score == 0
@@ -400,8 +487,15 @@ def test_calculate_compliance_score_logic() -> None:
 
     # Check mixed pass/fail with severity INFO/warning
     mixed = [
-        ValidationResult(rule_name="jsonrpc_version", passed=True, severity="critical", message="Pass"),
-        ValidationResult(rule_name="envelope_type", passed=False, severity="warning", message="Fail warning - doesn't count against critical score"),
+        ValidationResult(
+            rule_name="jsonrpc_version", passed=True, severity="critical", message="Pass"
+        ),
+        ValidationResult(
+            rule_name="envelope_type",
+            passed=False,
+            severity="warning",
+            message="Fail warning - doesn't count against critical score",
+        ),
     ]
     score, passed, total = calculate_compliance_score(mixed)
     assert score == 100
@@ -412,13 +506,31 @@ def test_calculate_compliance_score_logic() -> None:
 def test_validate_rendering_info_severity(runner: CliRunner) -> None:
     """Verify validation CLI renders INFO severity correctly and supports JSON output."""
     mock_results = [
-        ValidationResult(rule_name="custom_info", passed=False, severity="info", message="Some info message"),
-        ValidationResult(rule_name="custom_warn", passed=False, severity="warning", message="Some warning message", suggestion="Fix this warning"),
-        ValidationResult(rule_name="custom_pass", passed=True, severity="critical", message="Some pass message"),
+        ValidationResult(
+            rule_name="custom_info", passed=False, severity="info", message="Some info message"
+        ),
+        ValidationResult(
+            rule_name="custom_warn",
+            passed=False,
+            severity="warning",
+            message="Some warning message",
+            suggestion="Fix this warning",
+        ),
+        ValidationResult(
+            rule_name="custom_pass", passed=True, severity="critical", message="Some pass message"
+        ),
     ]
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
-            with patch("mcp_debugger.protocol.validator.ProtocolValidator.validate_session", new_callable=AsyncMock, return_value=mock_results):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
+            with patch(
+                "mcp_debugger.protocol.validator.ProtocolValidator.validate_session",
+                new_callable=AsyncMock,
+                return_value=mock_results,
+            ):
                 # Standard render mode (exits 0 as there is no critical error)
                 result = runner.invoke(app, ["validate", "1"])
                 assert result.exit_code == 0
@@ -445,9 +557,13 @@ def test_validate_keyboard_interrupt(runner: CliRunner) -> None:
 # 6. TOOLS COMMAND EDGE CASES
 # ===========================================================================
 
+
 def test_tools_database_error(runner: CliRunner) -> None:
     """Verify tools command exits on DB error."""
-    with patch("mcp_debugger.storage.database.Database.connect", side_effect=sqlite3.DatabaseError("Corrupt DB")):
+    with patch(
+        "mcp_debugger.storage.database.Database.connect",
+        side_effect=sqlite3.DatabaseError("Corrupt DB"),
+    ):
         result = runner.invoke(app, ["tools", "1"])
         assert result.exit_code == 1
         assert "corrupted or invalid" in result.stdout
@@ -455,7 +571,9 @@ def test_tools_database_error(runner: CliRunner) -> None:
 
 def test_tools_general_connect_error(runner: CliRunner) -> None:
     """Verify tools command handles DB connect exceptions."""
-    with patch("mcp_debugger.storage.database.Database.connect", side_effect=Exception("Connect crash")):
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", side_effect=Exception("Connect crash")
+    ):
         result = runner.invoke(app, ["tools", "1"])
         assert result.exit_code == 1
         assert "Error connecting to database" in result.stdout
@@ -464,7 +582,11 @@ def test_tools_general_connect_error(runner: CliRunner) -> None:
 def test_tools_session_not_found(runner: CliRunner) -> None:
     """Verify tools command exits if session missing."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value=None):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
             result = runner.invoke(app, ["tools", "999"])
             assert result.exit_code == 1
             assert "Session 999 not found" in result.stdout
@@ -473,8 +595,16 @@ def test_tools_session_not_found(runner: CliRunner) -> None:
 def test_tools_fetch_error(runner: CliRunner) -> None:
     """Verify tools command handles fetch query failures."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
-            with patch("mcp_debugger.storage.database.Database.get_tools", new_callable=AsyncMock, side_effect=Exception("Query fail")):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
+            with patch(
+                "mcp_debugger.storage.database.Database.get_tools",
+                new_callable=AsyncMock,
+                side_effect=Exception("Query fail"),
+            ):
                 result = runner.invoke(app, ["tools", "1"])
                 assert result.exit_code == 1
                 assert "Error fetching tools" in result.stdout
@@ -483,8 +613,16 @@ def test_tools_fetch_error(runner: CliRunner) -> None:
 def test_tools_empty_list(runner: CliRunner) -> None:
     """Verify tools output when no tools are discovered."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
-            with patch("mcp_debugger.storage.database.Database.get_tools", new_callable=AsyncMock, return_value=[]):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
+            with patch(
+                "mcp_debugger.storage.database.Database.get_tools",
+                new_callable=AsyncMock,
+                return_value=[],
+            ):
                 # Standard mode
                 result = runner.invoke(app, ["tools", "1"])
                 assert result.exit_code == 1
@@ -503,19 +641,27 @@ def test_tools_details_and_exceptions(runner: CliRunner) -> None:
             "name": "my_tool",
             "description": "desc",
             "input_schema": '{"type": "object"}',
-            "call_count": 5
+            "call_count": 5,
         },
         {
             "name": "bad_schema_tool",
             "description": "desc",
-            "input_schema": '{invalid-json}',
-            "call_count": 2
-        }
+            "input_schema": "{invalid-json}",
+            "call_count": 2,
+        },
     ]
 
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
-            with patch("mcp_debugger.storage.database.Database.get_tools", new_callable=AsyncMock, return_value=mock_tools):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
+            with patch(
+                "mcp_debugger.storage.database.Database.get_tools",
+                new_callable=AsyncMock,
+                return_value=mock_tools,
+            ):
                 # 1. Non-existent tool requested
                 result_missing = runner.invoke(app, ["tools", "1", "--detail", "missing_tool"])
                 assert result_missing.exit_code == 1
@@ -529,7 +675,7 @@ def test_tools_details_and_exceptions(runner: CliRunner) -> None:
                 # 3. Tool with invalid schema (JSON load exception fallback)
                 result_invalid = runner.invoke(app, ["tools", "1", "--detail", "bad_schema_tool"])
                 assert result_invalid.exit_code == 0
-                assert '{invalid-json}' in result_invalid.stdout
+                assert "{invalid-json}" in result_invalid.stdout
 
                 # 4. List tools with invalid schema to hit JSON load exception fallback in tools command
                 result_list = runner.invoke(app, ["tools", "1"])
@@ -549,6 +695,7 @@ def test_cli_helpers(runner: CliRunner) -> None:
     # 1. Version emoji encode exception fallback
     from rich.console import Console
     from unittest.mock import PropertyMock
+
     with patch.object(Console, "encoding", new_callable=PropertyMock, return_value="ascii"):
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
@@ -574,14 +721,18 @@ def test_cli_helpers(runner: CliRunner) -> None:
 def test_errors_command_database_exceptions(runner: CliRunner) -> None:
     """Verify that errors command handles database errors and exceptions gracefully."""
     # 1. connect DatabaseError
-    with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock) as mock_connect:
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock
+    ) as mock_connect:
         mock_connect.side_effect = sqlite3.DatabaseError("Corrupt DB")
         result = runner.invoke(app, ["errors", "1"])
         assert result.exit_code == 1
         assert "corrupted or invalid" in result.stdout
 
     # 2. connect generic Exception
-    with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock) as mock_connect:
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock
+    ) as mock_connect:
         mock_connect.side_effect = Exception("Connect error")
         result = runner.invoke(app, ["errors", "1"])
         assert result.exit_code == 1
@@ -589,8 +740,14 @@ def test_errors_command_database_exceptions(runner: CliRunner) -> None:
 
     # 3. get_errors exception fallback
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
-            with patch("mcp_debugger.storage.database.Database.get_errors", new_callable=AsyncMock) as mock_get_errors:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
+            with patch(
+                "mcp_debugger.storage.database.Database.get_errors", new_callable=AsyncMock
+            ) as mock_get_errors:
                 mock_get_errors.side_effect = Exception("Fetch failed")
                 result = runner.invoke(app, ["errors", "1"])
                 assert result.exit_code == 1
@@ -600,6 +757,7 @@ def test_errors_command_database_exceptions(runner: CliRunner) -> None:
 # ===========================================================================
 # 7. EXTENDED EDGE CASES & KEYBOARD INTERRUPTS
 # ===========================================================================
+
 
 def test_keyboard_interrupt_handlers(runner: CliRunner) -> None:
     """Verify that CLI commands exit cleanly on KeyboardInterrupt."""
@@ -630,13 +788,18 @@ def test_validate_no_session_or_server(runner: CliRunner) -> None:
     """Verify that validate command fails if neither server nor session_id is specified."""
     result = runner.invoke(app, ["validate"])
     assert result.exit_code == 1
-    assert "Please specify a session_id" in result.stdout or "Please specify a session_id" in result.stderr
+    assert (
+        "Please specify a session_id" in result.stdout
+        or "Please specify a session_id" in result.stderr
+    )
 
 
 def test_stats_command_extended_exceptions(runner: CliRunner) -> None:
     """Verify stats command connection error, ValueError, and file write exceptions."""
     # 1. Database connection error (line 1298-1300)
-    with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock) as mock_connect:
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock
+    ) as mock_connect:
         mock_connect.side_effect = Exception("Conn Error")
         result = runner.invoke(app, ["stats", "1"])
         assert result.exit_code == 1
@@ -660,6 +823,7 @@ def test_stats_command_extended_exceptions(runner: CliRunner) -> None:
 
     # 4. JSON output file write failure (line 1320-1323)
     from mcp_debugger.analytics import SessionStats
+
     dummy_stats = SessionStats(
         session_id=1,
         friendly_name="sess",
@@ -678,18 +842,28 @@ def test_stats_command_extended_exceptions(runner: CliRunner) -> None:
         latency_avg=None,
         latency_trend=[],
         method_distribution={},
-        error_trend=[]
+        error_trend=[],
     )
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.cli.aggregate_session_stats", new_callable=AsyncMock, return_value=dummy_stats):
+        with patch(
+            "mcp_debugger.cli.aggregate_session_stats",
+            new_callable=AsyncMock,
+            return_value=dummy_stats,
+        ):
             with patch("pathlib.Path.write_text", side_effect=OSError("Write failed")):
-                result = runner.invoke(app, ["stats", "1", "--json", "--output", "invalid/path.json"])
+                result = runner.invoke(
+                    app, ["stats", "1", "--json", "--output", "invalid/path.json"]
+                )
                 assert result.exit_code == 0
                 assert "Error writing to output file" in result.stdout
 
     # 5. Markdown/text output file write failure (line 1336-1337)
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.cli.aggregate_session_stats", new_callable=AsyncMock, return_value=dummy_stats):
+        with patch(
+            "mcp_debugger.cli.aggregate_session_stats",
+            new_callable=AsyncMock,
+            return_value=dummy_stats,
+        ):
             with patch("pathlib.Path.write_text", side_effect=OSError("Write failed")):
                 result = runner.invoke(app, ["stats", "1", "--output", "invalid/path.md"])
                 assert result.exit_code == 0
@@ -699,6 +873,7 @@ def test_stats_command_extended_exceptions(runner: CliRunner) -> None:
 def test_stats_command_no_data_fallbacks(runner: CliRunner) -> None:
     """Verify stats command renders placeholder text when session data is missing/empty."""
     from mcp_debugger.analytics import SessionStats
+
     empty_stats = SessionStats(
         session_id=1,
         friendly_name="sess",
@@ -717,10 +892,14 @@ def test_stats_command_no_data_fallbacks(runner: CliRunner) -> None:
         latency_avg=None,
         latency_trend=[],
         method_distribution={},
-        error_trend=[]
+        error_trend=[],
     )
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.cli.aggregate_session_stats", new_callable=AsyncMock, return_value=empty_stats):
+        with patch(
+            "mcp_debugger.cli.aggregate_session_stats",
+            new_callable=AsyncMock,
+            return_value=empty_stats,
+        ):
             result = runner.invoke(app, ["stats", "1"])
             assert result.exit_code == 0
             assert "No tools called" in result.stdout
@@ -733,7 +912,9 @@ def test_stats_command_no_data_fallbacks(runner: CliRunner) -> None:
 def test_compare_command_extended_exceptions(runner: CliRunner) -> None:
     """Verify compare command connection, ValueError, Exception and color formatting logic."""
     # 1. Connection error (line 1451-1453)
-    with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock) as mock_connect:
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock
+    ) as mock_connect:
         mock_connect.side_effect = Exception("Conn Error")
         result = runner.invoke(app, ["compare", "1", "2"])
         assert result.exit_code == 1
@@ -759,7 +940,7 @@ def test_compare_command_extended_exceptions(runner: CliRunner) -> None:
 def test_compare_command_color_and_summary_logic(runner: CliRunner) -> None:
     """Verify compare command outputs correct formatting and summaries for various diffs."""
     from mcp_debugger.analytics import SessionStats, ToolMetric
-    
+
     stats_a = SessionStats(
         session_id=1,
         friendly_name="sess-a",
@@ -771,14 +952,16 @@ def test_compare_command_color_and_summary_logic(runner: CliRunner) -> None:
         total_messages=10,
         client_to_server_count=5,
         server_to_client_count=5,
-        top_tools=[ToolMetric(name="my-tool", calls=5, avg_latency_ms=10.0, errors_count=0, error_rate=0.0)],
+        top_tools=[
+            ToolMetric(name="my-tool", calls=5, avg_latency_ms=10.0, errors_count=0, error_rate=0.0)
+        ],
         errors_by_category={"protocol": 5},
         latency_min=10.0,
         latency_max=200.0,
         latency_avg=100.0,
         latency_trend=[100.0] * 5,
         method_distribution={"tools/call": 5},
-        error_trend=[0] * 5
+        error_trend=[0] * 5,
     )
 
     # Session B is slower (350s, +16.7%), has more errors (protocol: 10), my-tool calls increased (+3 calls), latency slower (+30%)
@@ -793,14 +976,18 @@ def test_compare_command_color_and_summary_logic(runner: CliRunner) -> None:
         total_messages=12,
         client_to_server_count=6,
         server_to_client_count=6,
-        top_tools=[ToolMetric(name="my-tool", calls=8, avg_latency_ms=13.0, errors_count=1, error_rate=0.125)],
+        top_tools=[
+            ToolMetric(
+                name="my-tool", calls=8, avg_latency_ms=13.0, errors_count=1, error_rate=0.125
+            )
+        ],
         errors_by_category={"protocol": 10},
         latency_min=10.0,
         latency_max=200.0,
         latency_avg=100.0,
         latency_trend=[100.0] * 5,
         method_distribution={"tools/call": 5},
-        error_trend=[0] * 5
+        error_trend=[0] * 5,
     )
 
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
@@ -825,14 +1012,14 @@ def test_compare_command_color_and_summary_logic(runner: CliRunner) -> None:
         total_messages=8,
         client_to_server_count=4,
         server_to_client_count=4,
-        top_tools=[], # my-tool removed
+        top_tools=[],  # my-tool removed
         errors_by_category={"protocol": 1},
         latency_min=10.0,
         latency_max=200.0,
         latency_avg=100.0,
         latency_trend=[100.0] * 5,
         method_distribution={"tools/call": 5},
-        error_trend=[0] * 5
+        error_trend=[0] * 5,
     )
 
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
@@ -850,7 +1037,9 @@ def test_compare_command_color_and_summary_logic(runner: CliRunner) -> None:
 def test_export_command_extended_exceptions(runner: CliRunner) -> None:
     """Verify export command connection exceptions, stats exceptions, and file writing errors."""
     # 1. Connection error
-    with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock) as mock_connect:
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock
+    ) as mock_connect:
         mock_connect.side_effect = Exception("Conn error")
         result = runner.invoke(app, ["export", "1"])
         assert result.exit_code == 1
@@ -858,8 +1047,14 @@ def test_export_command_extended_exceptions(runner: CliRunner) -> None:
 
     # 2. Stats computation exception — patch at the source module since cli imports it locally
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
-            with patch("mcp_debugger.analytics.aggregate_session_stats", new_callable=AsyncMock) as mock_agg:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
+            with patch(
+                "mcp_debugger.analytics.aggregate_session_stats", new_callable=AsyncMock
+            ) as mock_agg:
                 mock_agg.side_effect = Exception("Stats error")
                 result = runner.invoke(app, ["export", "1"])
                 assert result.exit_code == 1
@@ -867,9 +1062,16 @@ def test_export_command_extended_exceptions(runner: CliRunner) -> None:
 
     # 3. Output file write error — mock the JSONExporter.export to raise OSError
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
             with patch("mcp_debugger.analytics.aggregate_session_stats", new_callable=AsyncMock):
-                with patch("mcp_debugger.exporters.json_exporter.JSONExporter.export", side_effect=OSError("Write permission denied")):
+                with patch(
+                    "mcp_debugger.exporters.json_exporter.JSONExporter.export",
+                    side_effect=OSError("Write permission denied"),
+                ):
                     result = runner.invoke(app, ["export", "1", "--output", "readonly/file.json"])
                     assert result.exit_code == 1
                     assert "Error writing to readonly/file.json" in result.stdout
@@ -879,7 +1081,11 @@ def test_export_command_otlp(runner: CliRunner) -> None:
     """Verify OTLP exporter code paths and failure handling in export command."""
     # 1. Mock OTLPExporter import error (simulate module not installed)
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
             with patch("mcp_debugger.analytics.aggregate_session_stats", new_callable=AsyncMock):
                 with patch.dict("sys.modules", {"mcp_debugger.exporters.otlp_exporter": None}):
                     result = runner.invoke(app, ["export", "1", "--format", "otlp"])
@@ -890,7 +1096,11 @@ def test_export_command_otlp(runner: CliRunner) -> None:
     mock_exporter = MagicMock()
     mock_exporter.return_value.export.return_value = 5
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
             with patch("mcp_debugger.analytics.aggregate_session_stats", new_callable=AsyncMock):
                 with patch("mcp_debugger.exporters.otlp_exporter.OTLPExporter", mock_exporter):
                     result = runner.invoke(app, ["export", "1", "--format", "otlp"])
@@ -901,7 +1111,11 @@ def test_export_command_otlp(runner: CliRunner) -> None:
     mock_exporter_fail = MagicMock()
     mock_exporter_fail.return_value.export.side_effect = RuntimeError("Network error")
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"id": 1}):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"id": 1},
+        ):
             with patch("mcp_debugger.analytics.aggregate_session_stats", new_callable=AsyncMock):
                 with patch("mcp_debugger.exporters.otlp_exporter.OTLPExporter", mock_exporter_fail):
                     result = runner.invoke(app, ["export", "1", "--format", "otlp"])
@@ -913,6 +1127,7 @@ def _make_replay_result(**kwargs):
     """Helper to build a valid ReplayResult with required fields."""
     from datetime import datetime, timezone
     from mcp_debugger.replay.engine import ReplayResult
+
     defaults = dict(
         session_id=1,
         target_server_command="dummy",
@@ -932,6 +1147,7 @@ def _make_replay_result(**kwargs):
 def _make_replayed_message(**kwargs):
     """Helper to build a valid ReplayedMessage with required fields."""
     from mcp_debugger.replay.engine import ReplayedMessage
+
     defaults = dict(
         original_message_id=1,
         method="initialize",
@@ -959,14 +1175,16 @@ def test_replay_command_extended_edge_cases(runner: CliRunner) -> None:
     # 2. No server specified error (line 1793-1796)
     with patch("mcp_debugger.config.get_config") as mock_get_cfg:
         cfg = Config()
-        cfg.data = {} # empty config
+        cfg.data = {}  # empty config
         mock_get_cfg.return_value = cfg
         result = runner.invoke(app, ["replay", "1"])
         assert result.exit_code == 1
         assert "Error: No server specified" in result.stdout
 
     # 3. Mock a database connection failure for replay (line 1822-1824)
-    with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock) as mock_connect:
+    with patch(
+        "mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock
+    ) as mock_connect:
         mock_connect.side_effect = Exception("Conn Error")
         result = runner.invoke(app, ["replay", "1", "--server", "dummy"])
         assert result.exit_code == 1
@@ -974,7 +1192,11 @@ def test_replay_command_extended_edge_cases(runner: CliRunner) -> None:
 
     # 4. Missing session error for replay (line 1828-1830)
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value=None):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
             result = runner.invoke(app, ["replay", "1", "--server", "dummy"])
             assert result.exit_code == 1
             assert "Session #1 not found" in result.stdout
@@ -997,8 +1219,16 @@ def test_replay_command_extended_edge_cases(runner: CliRunner) -> None:
         messages=[crashed_msg],
     )
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"server_command": "dummy"}):
-            with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock, return_value=mock_result_crash):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"server_command": "dummy"},
+        ):
+            with patch(
+                "mcp_debugger.replay.engine.ReplayEngine.replay",
+                new_callable=AsyncMock,
+                return_value=mock_result_crash,
+            ):
                 result = runner.invoke(app, ["replay", "1", "--server", "dummy"])
                 assert result.exit_code == 2
                 assert "Server crashed during message #42" in result.stdout
@@ -1009,29 +1239,70 @@ def test_replay_command_extended_edge_cases(runner: CliRunner) -> None:
         messages=[_make_replayed_message()],
     )
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"server_command": "dummy"}):
-            with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock, return_value=mock_result_ok):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"server_command": "dummy"},
+        ):
+            with patch(
+                "mcp_debugger.replay.engine.ReplayEngine.replay",
+                new_callable=AsyncMock,
+                return_value=mock_result_ok,
+            ):
                 with patch("pathlib.Path.write_text", side_effect=OSError("Write failed")):
-                    result = runner.invoke(app, ["replay", "1", "--server", "dummy", "--json", "--output", "invalid/path.json"])
+                    result = runner.invoke(
+                        app,
+                        [
+                            "replay",
+                            "1",
+                            "--server",
+                            "dummy",
+                            "--json",
+                            "--output",
+                            "invalid/path.json",
+                        ],
+                    )
                     assert result.exit_code == 1
                     assert "Error writing output to" in result.stdout
 
     # 7. Terminal output file write failure in replay (line 2019-2021)
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"server_command": "dummy"}):
-            with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock, return_value=mock_result_ok):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"server_command": "dummy"},
+        ):
+            with patch(
+                "mcp_debugger.replay.engine.ReplayEngine.replay",
+                new_callable=AsyncMock,
+                return_value=mock_result_ok,
+            ):
                 with patch("pathlib.Path.write_text", side_effect=OSError("Write failed")):
-                    result = runner.invoke(app, ["replay", "1", "--server", "dummy", "--output", "invalid/path.txt"])
+                    result = runner.invoke(
+                        app, ["replay", "1", "--server", "dummy", "--output", "invalid/path.txt"]
+                    )
                     assert result.exit_code == 1
                     assert "Error writing output to" in result.stdout
 
     # 8. OTLP replay export exceptions (lines 2029-2041)
     # Check OTLP import error via sys.modules
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"server_command": "dummy"}):
-            with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock, return_value=mock_result_ok):
-                with patch.dict("sys.modules", {"mcp_debugger.exporters.otlp_replay_exporter": None}):
-                    result = runner.invoke(app, ["replay", "1", "--server", "dummy", "--otlp-export"])
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"server_command": "dummy"},
+        ):
+            with patch(
+                "mcp_debugger.replay.engine.ReplayEngine.replay",
+                new_callable=AsyncMock,
+                return_value=mock_result_ok,
+            ):
+                with patch.dict(
+                    "sys.modules", {"mcp_debugger.exporters.otlp_replay_exporter": None}
+                ):
+                    result = runner.invoke(
+                        app, ["replay", "1", "--server", "dummy", "--otlp-export"]
+                    )
                     assert result.exit_code == 0
                     assert "Warning" in result.stdout
 
@@ -1039,10 +1310,23 @@ def test_replay_command_extended_edge_cases(runner: CliRunner) -> None:
     mock_otlp_replay_exporter = MagicMock()
     mock_otlp_replay_exporter.return_value.export.side_effect = Exception("Export network fail")
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"server_command": "dummy"}):
-            with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock, return_value=mock_result_ok):
-                with patch("mcp_debugger.exporters.otlp_replay_exporter.OTLPReplayExporter", mock_otlp_replay_exporter):
-                    result = runner.invoke(app, ["replay", "1", "--server", "dummy", "--otlp-export"])
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"server_command": "dummy"},
+        ):
+            with patch(
+                "mcp_debugger.replay.engine.ReplayEngine.replay",
+                new_callable=AsyncMock,
+                return_value=mock_result_ok,
+            ):
+                with patch(
+                    "mcp_debugger.exporters.otlp_replay_exporter.OTLPReplayExporter",
+                    mock_otlp_replay_exporter,
+                ):
+                    result = runner.invoke(
+                        app, ["replay", "1", "--server", "dummy", "--otlp-export"]
+                    )
                     assert result.exit_code == 0
                     assert "Warning: OTLP export failed" in result.stdout
 
@@ -1052,7 +1336,12 @@ def test_replay_mismatch_formatting_and_no_diff(runner: CliRunner) -> None:
     mismatched_msg = _make_replayed_message(
         original_message_id=7,
         method="tools/call",
-        request_sent={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "test_tool", "arguments": {"x": 1}}},
+        request_sent={
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {"name": "test_tool", "arguments": {"x": 1}},
+        },
         original_response=None,
         replayed_response={"result": "different"},
         matches=False,
@@ -1069,8 +1358,16 @@ def test_replay_mismatch_formatting_and_no_diff(runner: CliRunner) -> None:
 
     # With diff (default)
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"server_command": "dummy"}):
-            with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock, return_value=mock_result_mismatch):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"server_command": "dummy"},
+        ):
+            with patch(
+                "mcp_debugger.replay.engine.ReplayEngine.replay",
+                new_callable=AsyncMock,
+                return_value=mock_result_mismatch,
+            ):
                 result = runner.invoke(app, ["replay", "1", "--server", "dummy"])
                 assert result.exit_code == 1
                 assert "Tool: test_tool" in result.stdout
@@ -1083,8 +1380,16 @@ def test_replay_mismatch_formatting_and_no_diff(runner: CliRunner) -> None:
 
     # With --no-diff (line 2009-2011)
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock, return_value={"server_command": "dummy"}):
-            with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock, return_value=mock_result_mismatch):
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session",
+            new_callable=AsyncMock,
+            return_value={"server_command": "dummy"},
+        ):
+            with patch(
+                "mcp_debugger.replay.engine.ReplayEngine.replay",
+                new_callable=AsyncMock,
+                return_value=mock_result_mismatch,
+            ):
                 result = runner.invoke(app, ["replay", "1", "--server", "dummy", "--no-diff"])
                 assert result.exit_code == 1
                 assert "Mismatched Message IDs: [7]" in result.stdout
@@ -1094,9 +1399,13 @@ def test_replay_mismatch_formatting_and_no_diff(runner: CliRunner) -> None:
 def test_inspect_non_json_fields(runner: CliRunner) -> None:
     """Verify that inspect processes non-JSON message fields without raising an exception."""
     with patch("mcp_debugger.storage.database.Database.connect", new_callable=AsyncMock):
-        with patch("mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "mcp_debugger.storage.database.Database.get_session", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.return_value = {"id": 1, "friendly_name": "test"}
-            with patch("mcp_debugger.storage.database.Database.get_messages", new_callable=AsyncMock) as mock_messages:
+            with patch(
+                "mcp_debugger.storage.database.Database.get_messages", new_callable=AsyncMock
+            ) as mock_messages:
                 mock_messages.return_value = [
                     {
                         "id": 1,
@@ -1106,10 +1415,8 @@ def test_inspect_non_json_fields(runner: CliRunner) -> None:
                         "params": "{invalid-json}",
                         "result": "{invalid-json}",
                         "error": "{invalid-json}",
-                        "timestamp": 123.45
+                        "timestamp": 123.45,
                     }
                 ]
                 result = runner.invoke(app, ["inspect", "1"])
                 assert result.exit_code == 0
-
-

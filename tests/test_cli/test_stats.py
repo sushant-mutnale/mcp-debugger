@@ -75,8 +75,8 @@ async def test_aggregate_and_compare_stats(mock_db_path: str) -> None:
             "jsonrpc": "2.0",
             "id": "1",
             "method": "tools/call",
-            "params": {"name": "read_file"}
-        }
+            "params": {"name": "read_file"},
+        },
     )
     # Simulate a delay by hand and log response with latency
     await asyncio.sleep(0.01)
@@ -86,8 +86,8 @@ async def test_aggregate_and_compare_stats(mock_db_path: str) -> None:
         message={
             "jsonrpc": "2.0",
             "id": "1",
-            "result": {"content": [{"type": "text", "text": "hello"}]}
-        }
+            "result": {"content": [{"type": "text", "text": "hello"}]},
+        },
     )
 
     # Log tool calls and execution failures
@@ -98,8 +98,8 @@ async def test_aggregate_and_compare_stats(mock_db_path: str) -> None:
             "jsonrpc": "2.0",
             "id": "2",
             "method": "tools/call",
-            "params": {"name": "write_file"}
-        }
+            "params": {"name": "write_file"},
+        },
     )
     await db.log_message(
         session_id=session_id_a,
@@ -107,8 +107,8 @@ async def test_aggregate_and_compare_stats(mock_db_path: str) -> None:
         message={
             "jsonrpc": "2.0",
             "id": "2",
-            "result": {"isError": True, "content": [{"type": "text", "text": "Error write"}]}
-        }
+            "result": {"isError": True, "content": [{"type": "text", "text": "Error write"}]},
+        },
     )
 
     # Log an error to test categorization
@@ -118,7 +118,7 @@ async def test_aggregate_and_compare_stats(mock_db_path: str) -> None:
         error_type="protocol",
         error_message="Method not found",
         suggestion="check",
-        error_code=-32601
+        error_code=-32601,
     )
     await db.log_error(
         session_id=session_id_a,
@@ -126,7 +126,7 @@ async def test_aggregate_and_compare_stats(mock_db_path: str) -> None:
         error_type="tool_execution",
         error_message="Tool failed",
         suggestion="fix it",
-        error_code=None
+        error_code=None,
     )
 
     # Now aggregate
@@ -149,8 +149,8 @@ async def test_aggregate_and_compare_stats(mock_db_path: str) -> None:
             "jsonrpc": "2.0",
             "id": "1",
             "method": "tools/call",
-            "params": {"name": "read_file"}
-        }
+            "params": {"name": "read_file"},
+        },
     )
     await db.log_message(
         session_id=session_id_b,
@@ -158,8 +158,8 @@ async def test_aggregate_and_compare_stats(mock_db_path: str) -> None:
         message={
             "jsonrpc": "2.0",
             "id": "1",
-            "result": {"content": [{"type": "text", "text": "hello B"}]}
-        }
+            "result": {"content": [{"type": "text", "text": "hello B"}]},
+        },
     )
 
     stats_b = await aggregate_session_stats(db, session_id_b)
@@ -176,6 +176,7 @@ async def test_aggregate_and_compare_stats(mock_db_path: str) -> None:
 
 def test_stats_command(mock_db_path: str, runner: CliRunner) -> None:
     """Verify stats command runs and aggregates statistics."""
+
     async def populate() -> None:
         db = Database(db_path=mock_db_path)
         await db.connect()
@@ -189,18 +190,14 @@ def test_stats_command(mock_db_path: str, runner: CliRunner) -> None:
                 "jsonrpc": "2.0",
                 "id": "1",
                 "method": "tools/call",
-                "params": {"name": "hello_tool"}
-            }
+                "params": {"name": "hello_tool"},
+            },
         )
         # Log response
         await db.log_message(
             session_id=session_id,
             direction="server_to_client",
-            message={
-                "jsonrpc": "2.0",
-                "id": "1",
-                "result": {"isError": True, "content": []}
-            }
+            message={"jsonrpc": "2.0", "id": "1", "result": {"isError": True, "content": []}},
         )
 
         # Log an error
@@ -237,6 +234,7 @@ def test_stats_command(mock_db_path: str, runner: CliRunner) -> None:
     # File output modes (Markdown and JSON)
     import tempfile
     from pathlib import Path
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Markdown output
         out_file = Path(tmp_dir) / "report.md"
@@ -258,6 +256,7 @@ def test_stats_command(mock_db_path: str, runner: CliRunner) -> None:
 
 def test_compare_command(mock_db_path: str, runner: CliRunner) -> None:
     """Verify compare command runs and calculates session differences."""
+
     async def populate() -> None:
         db = Database(db_path=mock_db_path)
         await db.connect()
@@ -267,7 +266,12 @@ def test_compare_command(mock_db_path: str, runner: CliRunner) -> None:
         await db.log_message(
             session_id=session_a,
             direction="client_to_server",
-            message={"jsonrpc": "2.0", "id": "1", "method": "tools/call", "params": {"name": "tool-a"}}
+            message={
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "tools/call",
+                "params": {"name": "tool-a"},
+            },
         )
         await db.close_session(session_a, "completed")
 
@@ -276,7 +280,12 @@ def test_compare_command(mock_db_path: str, runner: CliRunner) -> None:
         await db.log_message(
             session_id=session_b,
             direction="client_to_server",
-            message={"jsonrpc": "2.0", "id": "1", "method": "tools/call", "params": {"name": "tool-b"}}
+            message={
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "tools/call",
+                "params": {"name": "tool-b"},
+            },
         )
         await db.close_session(session_b, "completed")
 
@@ -313,8 +322,7 @@ async def test_analytics_edge_cases(mock_db_path: str) -> None:
     # Manually update started_at to invalid format
     conn = await db._get_conn()
     await conn.execute(
-        "UPDATE sessions SET started_at = 'invalid-date' WHERE id = ?",
-        (session_id,)
+        "UPDATE sessions SET started_at = 'invalid-date' WHERE id = ?", (session_id,)
     )
     await conn.commit()
 
@@ -325,7 +333,7 @@ async def test_analytics_edge_cases(mock_db_path: str) -> None:
         INSERT INTO messages (session_id, message_id, direction, message_type, method, params, timestamp)
         VALUES (?, '1', 'client_to_server', 'request', 'tools/call', '{invalid-json}', 123456.7)
         """,
-        (session_id,)
+        (session_id,),
     )
     # 2. Match request/response with error string
     await conn.execute(
@@ -333,14 +341,14 @@ async def test_analytics_edge_cases(mock_db_path: str) -> None:
         INSERT INTO messages (session_id, message_id, direction, message_type, method, params, timestamp)
         VALUES (?, '10', 'client_to_server', 'request', 'tools/call', '{"name": "tool_err"}', 123456.7)
         """,
-        (session_id,)
+        (session_id,),
     )
     await conn.execute(
         """
         INSERT INTO messages (session_id, message_id, direction, message_type, error, timestamp)
         VALUES (?, '10', 'server_to_client', 'response', '{"code": -32000, "message": "fail"}', 123456.7)
         """,
-        (session_id,)
+        (session_id,),
     )
     # 3. Match request/response with invalid JSON result string
     await conn.execute(
@@ -348,14 +356,14 @@ async def test_analytics_edge_cases(mock_db_path: str) -> None:
         INSERT INTO messages (session_id, message_id, direction, message_type, method, params, timestamp)
         VALUES (?, '11', 'client_to_server', 'request', 'tools/call', '{"name": "tool_invalid_res"}', 123456.7)
         """,
-        (session_id,)
+        (session_id,),
     )
     await conn.execute(
         """
         INSERT INTO messages (session_id, message_id, direction, message_type, result, timestamp)
         VALUES (?, '11', 'server_to_client', 'response', '{invalid-json}', 123456.7)
         """,
-        (session_id,)
+        (session_id,),
     )
     # 4. Match request/response with valid json isError=True result
     await conn.execute(
@@ -363,14 +371,14 @@ async def test_analytics_edge_cases(mock_db_path: str) -> None:
         INSERT INTO messages (session_id, message_id, direction, message_type, method, params, timestamp)
         VALUES (?, '12', 'client_to_server', 'request', 'tools/call', '{"name": "tool_ok"}', 123456.7)
         """,
-        (session_id,)
+        (session_id,),
     )
     await conn.execute(
         """
         INSERT INTO messages (session_id, message_id, direction, message_type, result, timestamp)
         VALUES (?, '12', 'server_to_client', 'response', '{"isError": true}', 123456.7)
         """,
-        (session_id,)
+        (session_id,),
     )
 
     await conn.commit()
@@ -382,6 +390,7 @@ async def test_analytics_edge_cases(mock_db_path: str) -> None:
 
     # 3. Trigger execution failure fallback (line 247-249)
     from unittest.mock import patch
+
     original_execute = conn.execute
 
     def mock_execute(sql, *args, **kwargs):
@@ -413,8 +422,12 @@ def test_compare_sessions_stats_edge_cases() -> None:
         client_to_server_count=5,
         server_to_client_count=5,
         top_tools=[
-            ToolMetric(name="tool_inc_dec", calls=5, avg_latency_ms=100.0, errors_count=0, error_rate=0.0),
-            ToolMetric(name="tool_removed", calls=2, avg_latency_ms=50.0, errors_count=0, error_rate=0.0)
+            ToolMetric(
+                name="tool_inc_dec", calls=5, avg_latency_ms=100.0, errors_count=0, error_rate=0.0
+            ),
+            ToolMetric(
+                name="tool_removed", calls=2, avg_latency_ms=50.0, errors_count=0, error_rate=0.0
+            ),
         ],
         errors_by_category={"protocol": 1},
         latency_min=10.0,
@@ -422,7 +435,7 @@ def test_compare_sessions_stats_edge_cases() -> None:
         latency_avg=100.0,
         latency_trend=[100.0] * 5,
         method_distribution={"tools/call": 5},
-        error_trend=[0] * 5
+        error_trend=[0] * 5,
     )
 
     # Session B stats:
@@ -442,8 +455,12 @@ def test_compare_sessions_stats_edge_cases() -> None:
         client_to_server_count=5,
         server_to_client_count=5,
         top_tools=[
-            ToolMetric(name="tool_inc_dec", calls=3, avg_latency_ms=120.0, errors_count=0, error_rate=0.0),
-            ToolMetric(name="tool_new", calls=4, avg_latency_ms=80.0, errors_count=0, error_rate=0.0)
+            ToolMetric(
+                name="tool_inc_dec", calls=3, avg_latency_ms=120.0, errors_count=0, error_rate=0.0
+            ),
+            ToolMetric(
+                name="tool_new", calls=4, avg_latency_ms=80.0, errors_count=0, error_rate=0.0
+            ),
         ],
         errors_by_category={"protocol": 5},
         latency_min=10.0,
@@ -451,7 +468,7 @@ def test_compare_sessions_stats_edge_cases() -> None:
         latency_avg=100.0,
         latency_trend=[100.0] * 5,
         method_distribution={"tools/call": 5},
-        error_trend=[0] * 5
+        error_trend=[0] * 5,
     )
 
     comp1 = compare_sessions_stats(stats_a, stats_b1)
@@ -476,7 +493,9 @@ def test_compare_sessions_stats_edge_cases() -> None:
         client_to_server_count=5,
         server_to_client_count=5,
         top_tools=[
-            ToolMetric(name="tool_inc_dec", calls=8, avg_latency_ms=120.0, errors_count=0, error_rate=0.0)
+            ToolMetric(
+                name="tool_inc_dec", calls=8, avg_latency_ms=120.0, errors_count=0, error_rate=0.0
+            )
         ],
         errors_by_category={"protocol": 0},
         latency_min=10.0,
@@ -484,7 +503,7 @@ def test_compare_sessions_stats_edge_cases() -> None:
         latency_avg=100.0,
         latency_trend=[100.0] * 5,
         method_distribution={"tools/call": 5},
-        error_trend=[0] * 5
+        error_trend=[0] * 5,
     )
 
     comp2 = compare_sessions_stats(stats_a, stats_b2)
@@ -505,7 +524,9 @@ def test_compare_sessions_stats_edge_cases() -> None:
         client_to_server_count=5,
         server_to_client_count=5,
         top_tools=[
-            ToolMetric(name="tool_inc_dec", calls=5, avg_latency_ms=100.0, errors_count=0, error_rate=0.0)
+            ToolMetric(
+                name="tool_inc_dec", calls=5, avg_latency_ms=100.0, errors_count=0, error_rate=0.0
+            )
         ],
         errors_by_category={"protocol": 1},
         latency_min=10.0,
@@ -513,8 +534,7 @@ def test_compare_sessions_stats_edge_cases() -> None:
         latency_avg=100.0,
         latency_trend=[100.0] * 5,
         method_distribution={"tools/call": 5},
-        error_trend=[0] * 5
+        error_trend=[0] * 5,
     )
     comp3 = compare_sessions_stats(stats_a, stats_b3)
     assert comp3.duration_change_str == "no change"
-

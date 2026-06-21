@@ -158,9 +158,7 @@ class MarkdownExporter:
             out.write(f"| {etype} | {code} | {msg} | {sug} |\n")
         out.write("\n")
 
-    def _write_message_log(
-        self, messages: List[Dict[str, Any]], out: IO[str]
-    ) -> None:
+    def _write_message_log(self, messages: List[Dict[str, Any]], out: IO[str]) -> None:
         out.write("## Message Log\n\n")
         if not messages:
             out.write("_No messages recorded._\n\n")
@@ -190,9 +188,7 @@ class MarkdownExporter:
                 out.write(f"<details>\n<summary>Message #{i}: {method} ({direction})</summary>\n\n")
                 # Build a clean dict (decode JSON fields)
                 clean: Dict[str, Any] = {
-                    k: _decode_json_field(v)
-                    for k, v in msg.items()
-                    if k not in ("session_id",)
+                    k: _decode_json_field(v) for k, v in msg.items() if k not in ("session_id",)
                 }
                 raw_json = json.dumps(clean, indent=2 if self.pretty else None, default=str)
                 if len(raw_json) > _RAW_TRUNCATE_BYTES:

@@ -86,7 +86,7 @@ def test_diff() -> None:
     rendered = render_diff(diff)
     assert "[yellow]" in rendered
     assert "[red]- 42" in rendered
-    assert "[green]+ \"forty-two\"" in rendered
+    assert '[green]+ "forty-two"' in rendered
 
     # 8. Performance test with 1MB JSON (hits guard)
     large_orig = {"data": [i for i in range(150000)]}
@@ -132,4 +132,3 @@ def test_diff_edge_cases() -> None:
     assert diff_removed is not None
     rendered_removed = render_diff(diff_removed)
     assert "- removed_key: 200" in rendered_removed
-

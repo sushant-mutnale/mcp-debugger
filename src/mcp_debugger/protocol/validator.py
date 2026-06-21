@@ -17,7 +17,9 @@ class ValidationResult(BaseModel):
     severity: str = Field(..., description="Severity level: 'critical', 'warning', or 'info'")
     message: str = Field(..., description="Human-readable explanation of the validation result")
     suggestion: Optional[str] = Field(default=None, description="Optional remediation advice")
-    context: Optional[Dict[str, Any]] = Field(default=None, description="Contextual message payload")
+    context: Optional[Dict[str, Any]] = Field(
+        default=None, description="Contextual message payload"
+    )
 
 
 class ProtocolValidator:
@@ -430,7 +432,10 @@ class ProtocolValidator:
                             )
                     else:
                         # Other notification from client before handshake completion
-                        if not initialized_notification_sent and method != "notifications/cancelled":
+                        if (
+                            not initialized_notification_sent
+                            and method != "notifications/cancelled"
+                        ):
                             results.append(
                                 ValidationResult(
                                     rule_name="handshake_order",

@@ -53,11 +53,13 @@ def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRu
                 replayed_response={"id": 2, "result": {"tools": []}},
                 latency_ms=2.5,
                 matches=True,
-            )
-        ]
+            ),
+        ],
     )
 
-    with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock) as mock_replay:
+    with patch(
+        "mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock
+    ) as mock_replay:
         mock_replay.return_value = mock_result
 
         # Test successful match exit code 0
@@ -80,7 +82,9 @@ def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRu
 
         # Test --output file redirection
         out_file = tmp_path / "replay_out.txt"
-        result_out = runner.invoke(app, ["replay", "1", "--server", "mock-target", "-o", str(out_file)])
+        result_out = runner.invoke(
+            app, ["replay", "1", "--server", "mock-target", "-o", str(out_file)]
+        )
         assert result_out.exit_code == 0
         assert out_file.exists()
         file_content = out_file.read_text(encoding="utf-8")
@@ -108,12 +112,14 @@ def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRu
                 latency_ms=1.2,
                 matches=False,
                 diff=[],
-                diff_text="~ result.tools: added new elements"
+                diff_text="~ result.tools: added new elements",
             )
-        ]
+        ],
     )
 
-    with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock) as mock_replay:
+    with patch(
+        "mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock
+    ) as mock_replay:
         mock_replay.return_value = mock_mismatch_result
         result_mismatch = runner.invoke(app, ["replay", "1", "--server", "mock-target"])
         assert result_mismatch.exit_code == 1
@@ -143,10 +149,12 @@ def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRu
                 latency_ms=0.0,
                 matches=False,
             )
-        ]
+        ],
     )
 
-    with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock) as mock_replay:
+    with patch(
+        "mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock
+    ) as mock_replay:
         mock_replay.return_value = mock_fail_start_result
         result_fail_start = runner.invoke(app, ["replay", "1", "--server", "nonexistent-server"])
         assert result_fail_start.exit_code == 2
@@ -175,10 +183,12 @@ def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRu
                 latency_ms=5000.0,
                 matches=False,
             )
-        ]
+        ],
     )
 
-    with patch("mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock) as mock_replay:
+    with patch(
+        "mcp_debugger.replay.engine.ReplayEngine.replay", new_callable=AsyncMock
+    ) as mock_replay:
         mock_replay.return_value = mock_timeout_result
         result_timeout = runner.invoke(app, ["replay", "1", "--server", "mock-target"])
         assert result_timeout.exit_code == 2

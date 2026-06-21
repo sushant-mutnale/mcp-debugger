@@ -131,7 +131,9 @@ class JSONExporter:
         tool_metric = next((t for t in stats.top_tools if t.name == name), None)
         call_count = tool_metric.calls if tool_metric else 0
         avg_latency = (
-            round(tool_metric.avg_latency_ms, 2) if (tool_metric and tool_metric.avg_latency_ms is not None) else None
+            round(tool_metric.avg_latency_ms, 2)
+            if (tool_metric and tool_metric.avg_latency_ms is not None)
+            else None
         )
 
         raw_schema = tool.get("input_schema") or "{}"
@@ -170,5 +172,7 @@ class JSONExporter:
             "total_errors": total_errors,
             "error_rate": error_rate,
             "tools_called": len(stats.top_tools),
-            "avg_latency_ms": round(stats.latency_avg, 2) if stats.latency_avg is not None else None,
+            "avg_latency_ms": round(stats.latency_avg, 2)
+            if stats.latency_avg is not None
+            else None,
         }

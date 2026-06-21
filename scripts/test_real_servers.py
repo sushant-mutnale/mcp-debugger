@@ -27,12 +27,12 @@ from typing import Any, Dict, List, Optional
 # Force UTF-8 output on Windows to avoid charmap encoding errors
 if sys.platform == "win32":
     import io
+
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # Make sure the src package is importable when run from the repo root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +87,7 @@ SERVERS: Dict[str, Dict[str, Any]] = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_request(method: str, params: Any, req_id: int) -> bytes:
     msg = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
     return (json.dumps(msg) + "\n").encode()
@@ -130,17 +131,18 @@ async def _read_response(
 # Test runner
 # ---------------------------------------------------------------------------
 
+
 class ServerTestResult:
     def __init__(self, name: str) -> None:
         self.name = name
-        self.status = "SKIP"   # PASS | FAIL | SKIP
+        self.status = "SKIP"  # PASS | FAIL | SKIP
         self.reason = ""
         self.tools_found: List[str] = []
         self.tool_calls: Dict[str, str] = {}  # tool_name -> PASS|FAIL
         self.issues: List[str] = []
 
     def __str__(self) -> str:
-        lines = [f"\n{'='*60}", f"  Server : {self.name}", f"  Status : {self.status}"]
+        lines = [f"\n{'=' * 60}", f"  Server : {self.name}", f"  Status : {self.status}"]
         if self.reason:
             lines.append(f"  Reason : {self.reason}")
         if self.tools_found:
@@ -214,15 +216,17 @@ async def run_server_test(
 
         # ---- Step 1: initialize ----
         print(f"[{name}] -> initialize")
-        await send(_make_request(
-            "initialize",
-            {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "mcp-debugger-compat-test", "version": "1.0"},
-            },
-            req_id,
-        ))
+        await send(
+            _make_request(
+                "initialize",
+                {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "mcp-debugger-compat-test", "version": "1.0"},
+                },
+                req_id,
+            )
+        )
         init_resp = await _read_response(process.stdout, req_id, timeout=step_timeout)
         req_id += 1
 
@@ -259,10 +263,7 @@ async def run_server_test(
             print(f"[{name}] <- tools/list: {len(result.tools_found)} tools")
 
         # ---- Step 4: Call up to 3 tools ----
-        tools_to_call = [
-            t for t in result.tools_found
-            if t in tool_args_map
-        ][:3]
+        tools_to_call = [t for t in result.tools_found if t in tool_args_map][:3]
 
         # If no known tools, try the first tool from the list with an empty call
         if not tools_to_call and result.tools_found:
@@ -272,18 +273,20 @@ async def run_server_test(
         for tool_name in tools_to_call:
             args = tool_args_map.get(tool_name, {})
             print(f"[{name}] -> tools/call {tool_name}")
-            await send(_make_request(
-                "tools/call",
-                {"name": tool_name, "arguments": args},
-                req_id,
-            ))
+            await send(
+                _make_request(
+                    "tools/call",
+                    {"name": tool_name, "arguments": args},
+                    req_id,
+                )
+            )
             call_resp = await _read_response(process.stdout, req_id, timeout=step_timeout)
             req_id += 1
 
             if call_resp is None:
                 result.tool_calls[tool_name] = "FAIL (timeout)"
             elif "error" in call_resp:
-                result.tool_calls[tool_name] = f"FAIL ({call_resp['error'].get('message','?')})"
+                result.tool_calls[tool_name] = f"FAIL ({call_resp['error'].get('message', '?')})"
                 result.issues.append(f"Tool {tool_name} returned error: {call_resp['error']}")
             else:
                 tool_result = call_resp.get("result", {})
@@ -291,12 +294,16 @@ async def run_server_test(
                 if is_err:
                     err_content = tool_result.get("content", [])
                     result.tool_calls[tool_name] = "FAIL (isError=true)"
-                    result.issues.append(f"Tool {tool_name} returned isError=true. Content: {err_content}")
+                    result.issues.append(
+                        f"Tool {tool_name} returned isError=true. Content: {err_content}"
+                    )
                 else:
                     result.tool_calls[tool_name] = "PASS"
 
         # ---- All steps passed ----
-        result.status = "PASS" if not any("FAIL" in v for v in result.tool_calls.values()) else "PARTIAL"
+        result.status = (
+            "PASS" if not any("FAIL" in v for v in result.tool_calls.values()) else "PARTIAL"
+        )
         if result.status == "PASS" and result.issues:
             result.status = "PARTIAL"
 
@@ -379,9 +386,11 @@ def _write_markdown_report(results: List[ServerTestResult], path: str) -> None:
     for r in results:
         tools = ", ".join(r.tools_found[:5]) or "—"
         if len(r.tools_found) > 5:
-            tools += f" (+{len(r.tools_found)-5} more)"
+            tools += f" (+{len(r.tools_found) - 5} more)"
         issues = "; ".join(r.issues[:3]) or "None"
-        status_icon = {"PASS": "✅", "FAIL": "❌", "SKIP": "⏭️", "PARTIAL": "⚠️"}.get(r.status, r.status)
+        status_icon = {"PASS": "✅", "FAIL": "❌", "SKIP": "⏭️", "PARTIAL": "⚠️"}.get(
+            r.status, r.status
+        )
         lines.append(f"| {r.name} | {status_icon} {r.status} | {tools} | {issues} |")
     lines.append("")
     for r in results:
@@ -408,11 +417,17 @@ if __name__ == "__main__":
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--server", help="Custom server command to test")
-    group.add_argument("--server-name", choices=list(SERVERS.keys()), help="Named server from catalogue")
+    group.add_argument(
+        "--server-name", choices=list(SERVERS.keys()), help="Named server from catalogue"
+    )
     group.add_argument("--all", action="store_true", help="Test all servers in catalogue")
     parser.add_argument("--output", help="Write Markdown compatibility report to this file")
-    parser.add_argument("--startup-wait", type=float, default=10.0, help="Seconds to wait for server startup")
-    parser.add_argument("--step-timeout", type=float, default=15.0, help="Seconds to wait for each step response")
+    parser.add_argument(
+        "--startup-wait", type=float, default=10.0, help="Seconds to wait for server startup"
+    )
+    parser.add_argument(
+        "--step-timeout", type=float, default=15.0, help="Seconds to wait for each step response"
+    )
 
     parsed = parser.parse_args()
     sys.exit(asyncio.run(main(parsed)))

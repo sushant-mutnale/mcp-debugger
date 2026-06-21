@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional, Tuple
 
+
 class ErrorClassifier:
     """Classifies Model Context Protocol (MCP) and JSON-RPC runtime errors."""
 
@@ -86,7 +87,9 @@ class ErrorClassifier:
                             if text:
                                 error_msgs.append(text)
 
-                error_msg = "; ".join(error_msgs) if error_msgs else "Tool reported execution failure"
+                error_msg = (
+                    "; ".join(error_msgs) if error_msgs else "Tool reported execution failure"
+                )
                 msg_lower = error_msg.lower()
 
                 # Heuristic suggestions for common tool execution errors

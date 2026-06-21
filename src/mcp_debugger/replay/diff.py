@@ -79,9 +79,7 @@ def compare_json(original: Any, replayed: Any, path: str = "") -> Optional[DiffN
             )
 
         for k in shared_keys:
-            child_diff = compare_json(
-                original[k], replayed[k], f"{path}.{k}" if path else k
-            )
+            child_diff = compare_json(original[k], replayed[k], f"{path}.{k}" if path else k)
             if child_diff is not None:
                 children.append(child_diff)
 

@@ -9,6 +9,7 @@ from mcp_debugger.storage.database import Database
 
 def _populate_export_session(mock_db_path: str) -> None:
     """Shared helper: create a session with messages and an error."""
+
     async def _create() -> None:
         db = Database(db_path=mock_db_path)
         await db.connect()
@@ -16,14 +17,21 @@ def _populate_export_session(mock_db_path: str) -> None:
         await db.log_message(
             session_id=sid,
             direction="client_to_server",
-            message={"jsonrpc": "2.0", "id": "1", "method": "initialize",
-                     "params": {"protocolVersion": "2025-03-26"}},
+            message={
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-03-26"},
+            },
         )
         await db.log_message(
             session_id=sid,
             direction="server_to_client",
-            message={"jsonrpc": "2.0", "id": "1",
-                     "result": {"protocolVersion": "2025-03-26", "serverInfo": {"name": "t"}}},
+            message={
+                "jsonrpc": "2.0",
+                "id": "1",
+                "result": {"protocolVersion": "2025-03-26", "serverInfo": {"name": "t"}},
+            },
         )
         await db.log_error(
             session_id=sid,

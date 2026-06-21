@@ -1,6 +1,7 @@
 import sys
 import json
 
+
 def main() -> None:
     """Read JSON-RPC requests from stdin and echo them back to stdout."""
     for line in sys.stdin:
@@ -19,6 +20,7 @@ def main() -> None:
         except Exception as e:
             sys.stderr.write(f"Error: {e}\n")
             sys.stderr.flush()
+
 
 if __name__ == "__main__":
     main()

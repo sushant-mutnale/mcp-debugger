@@ -66,13 +66,18 @@ app.add_typer(config_app, name="config")
 
 @config_app.command(name="init")
 def config_init(
-    force: bool = typer.Option(False, "--force", help="Overwrite existing config without prompting"),
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite existing config without prompting"
+    ),
 ) -> None:
     """Create the default config file (~/.mcp-debugger/config.toml)."""
     from mcp_debugger.config import Config, default_config_path
+
     path = default_config_path()
     if path.exists() and not force:
-        overwrite = typer.confirm(f"Config file already exists at {path}. Overwrite?", default=False)
+        overwrite = typer.confirm(
+            f"Config file already exists at {path}. Overwrite?", default=False
+        )
         if not overwrite:
             console.print("[yellow]Aborted.[/yellow]")
             raise typer.Exit(0)
@@ -87,6 +92,7 @@ def config_get(
 ) -> None:
     """Show the value of a config key."""
     from mcp_debugger.config import get_config
+
     cfg = get_config()
     value = cfg.get(key)
     if value is None:
@@ -98,10 +104,13 @@ def config_get(
 @config_app.command(name="set")
 def config_set(
     key: str = typer.Argument(..., help="Config key in dot-notation, e.g. replay.timeout"),
-    value: str = typer.Argument(..., help="Value to store (auto-converted to int/bool/float if possible)"),
+    value: str = typer.Argument(
+        ..., help="Value to store (auto-converted to int/bool/float if possible)"
+    ),
 ) -> None:
     """Set a config value and save to disk."""
     import mcp_debugger.config as _cfg_mod
+
     cfg = _cfg_mod.get_config()
     cfg.set(key, value)
     # Invalidate singleton so next read reflects the new value
@@ -116,6 +125,7 @@ def config_unset(
 ) -> None:
     """Remove a config key (reverts to the hardcoded default)."""
     import mcp_debugger.config as _cfg_mod
+
     cfg = _cfg_mod.get_config()
     removed = cfg.unset(key)
     _cfg_mod._GLOBAL_CONFIG = None  # invalidate
@@ -129,6 +139,7 @@ def config_unset(
 def config_list() -> None:
     """Show all config values in a formatted table."""
     from mcp_debugger.config import get_config, default_config_path
+
     cfg = get_config()
     data = cfg.all()
 
@@ -165,8 +176,11 @@ def config_reset(
 ) -> None:
     """Reset config to factory defaults."""
     import mcp_debugger.config as _cfg_mod
+
     if not force:
-        confirm = typer.confirm("Reset config to defaults? This will overwrite your current config.", default=False)
+        confirm = typer.confirm(
+            "Reset config to defaults? This will overwrite your current config.", default=False
+        )
         if not confirm:
             console.print("[yellow]Aborted.[/yellow]")
             raise typer.Exit(0)
@@ -174,8 +188,6 @@ def config_reset(
     cfg.reset()
     _cfg_mod._GLOBAL_CONFIG = None  # invalidate singleton
     console.print("[green]✓ Config reset to defaults.[/green]")
-
-
 
 
 def convert_utc_to_local_string(utc_str: str) -> str:
@@ -455,7 +467,9 @@ def inspect(
             )
             try:
                 errors = await db.get_errors(session_id)
-                error_map = {err["message_id"]: err for err in errors if err.get("message_id") is not None}
+                error_map = {
+                    err["message_id"]: err for err in errors if err.get("message_id") is not None
+                }
             except Exception:
                 error_map = {}
         except Exception as e:
@@ -585,7 +599,9 @@ def inspect(
                     header.append(f"+{latency:.0f}ms", style="magenta bold")
 
                 if err_info is not None and err_info.get("suggestion"):
-                    suggestion_text = Text(f"\n💡 Suggestion: {err_info['suggestion']}", style="yellow italic")
+                    suggestion_text = Text(
+                        f"\n💡 Suggestion: {err_info['suggestion']}", style="yellow italic"
+                    )
                     panel_content = Group(syntax_body, suggestion_text)
                 else:
                     panel_content = Group(syntax_body)
@@ -667,22 +683,28 @@ def list_errors(
             # Format errors list to standard JSON format
             json_errors = []
             for err in errors:
-                json_errors.append({
-                    "id": err["id"],
-                    "message_id": err["message_id"],
-                    "error_code": err["error_code"],
-                    "error_type": err["error_type"],
-                    "error_message": err["error_message"],
-                    "suggestion": err["suggestion"],
-                    "stack_trace": err["stack_trace"],
-                    "classified_at": err["classified_at"],
-                })
+                json_errors.append(
+                    {
+                        "id": err["id"],
+                        "message_id": err["message_id"],
+                        "error_code": err["error_code"],
+                        "error_type": err["error_type"],
+                        "error_message": err["error_message"],
+                        "suggestion": err["suggestion"],
+                        "stack_trace": err["stack_trace"],
+                        "classified_at": err["classified_at"],
+                    }
+                )
             print(json.dumps(json_errors, indent=2))
         else:
             if not errors:
-                console.print(f"[yellow]No classified errors found for session {session_id}[/yellow]")
+                console.print(
+                    f"[yellow]No classified errors found for session {session_id}[/yellow]"
+                )
             else:
-                table = Table(title=f"Classified Errors for Session {session_id}", border_style="red")
+                table = Table(
+                    title=f"Classified Errors for Session {session_id}", border_style="red"
+                )
                 table.add_column("ID", justify="right", style="cyan")
                 table.add_column("Type", style="magenta bold")
                 table.add_column("Message", style="white")
@@ -694,7 +716,7 @@ def list_errors(
                         str(err["error_type"]).upper(),
                         str(err["error_message"]),
                         str(err["suggestion"] or "—"),
-                      )
+                    )
                 console.print(table)
 
         await db.close()
@@ -729,6 +751,7 @@ def doctor() -> None:
     # 2. SQLite check
     try:
         import sqlite3
+
         sqlite_ver = sqlite3.sqlite_version
         ver_parts = [int(x) for x in sqlite_ver.split(".")]
         if ver_parts >= [3, 35, 0]:
@@ -875,9 +898,12 @@ def doctor() -> None:
 
     # 9. Config file check
     from mcp_debugger.config import Config, default_config_path
+
     cfg_path = default_config_path()
     if not cfg_path.exists():
-        lines.append(Text.assemble(("✓", "green"), f" Config file: {cfg_path} [not found – using defaults]"))
+        lines.append(
+            Text.assemble(("✓", "green"), f" Config file: {cfg_path} [not found – using defaults]")
+        )
     else:
         try:
             _cfg_check = Config(path=cfg_path)
@@ -887,7 +913,6 @@ def doctor() -> None:
             lines.append(
                 Text.assemble(("✗", "yellow"), f" Config file: {cfg_path} [invalid: {cfg_err}]")
             )
-
 
     panel_content = Text()
     for idx, line in enumerate(lines):
@@ -1068,13 +1093,17 @@ def validate(
                 console.print(
                     f"\n[red]Overall compliance: {critical_count} critical failures, {warning_count} warnings.[/red]"
                 )
-                console.print(f"Compliance score: {score}% ({passed}/{total} critical rules passed)")
+                console.print(
+                    f"Compliance score: {score}% ({passed}/{total} critical rules passed)"
+                )
                 sys.exit(1)
             else:
                 console.print(
                     f"\n[green]Overall compliance: 0 critical failures, {warning_count} warnings.[/green]"
                 )
-                console.print(f"Compliance score: {score}% ({passed}/{total} critical rules passed)")
+                console.print(
+                    f"Compliance score: {score}% ({passed}/{total} critical rules passed)"
+                )
                 sys.exit(0)
 
     try:
@@ -1232,7 +1261,7 @@ def generate_markdown_report(stats_data: Any, limit: int) -> str:
         "| Tool | Calls | Avg Latency | Error Rate |",
         "| :--- | :---: | :---: | :---: |",
     ]
-    
+
     for tool in stats_data.top_tools[:limit]:
         avg_lat = f"{tool.avg_latency_ms:.1f}ms" if tool.avg_latency_ms is not None else "—"
         err_rate_str = f"{tool.error_rate * 100:.0f}%"
@@ -1240,31 +1269,37 @@ def generate_markdown_report(stats_data: Any, limit: int) -> str:
             err_rate_str += f" ({tool.errors_count} error{'s' if tool.errors_count > 1 else ''})"
         lines.append(f"| {tool.name} | {tool.calls} | {avg_lat} | {err_rate_str} |")
 
-    lines.extend([
-        "",
-        "## Latency Metrics",
-        f"- **Min Latency**: {f'{stats_data.latency_min:.1f}ms' if stats_data.latency_min is not None else 'N/A'}",
-        f"- **Max Latency**: {f'{stats_data.latency_max:.1f}ms' if stats_data.latency_max is not None else 'N/A'}",
-        f"- **Avg Latency**: {f'{stats_data.latency_avg:.1f}ms' if stats_data.latency_avg is not None else 'N/A'}",
-        "",
-        "## Errors by Category",
-    ])
-    
+    lines.extend(
+        [
+            "",
+            "## Latency Metrics",
+            f"- **Min Latency**: {f'{stats_data.latency_min:.1f}ms' if stats_data.latency_min is not None else 'N/A'}",
+            f"- **Max Latency**: {f'{stats_data.latency_max:.1f}ms' if stats_data.latency_max is not None else 'N/A'}",
+            f"- **Avg Latency**: {f'{stats_data.latency_avg:.1f}ms' if stats_data.latency_avg is not None else 'N/A'}",
+            "",
+            "## Errors by Category",
+        ]
+    )
+
     if not stats_data.errors_by_category:
         lines.append("No errors recorded.")
     else:
         for cat, count in stats_data.errors_by_category.items():
             lines.append(f"- **{cat}**: {count}")
 
-    lines.extend([
-        "",
-        "## Method Distribution",
-        "| Method | Count | Percentage |",
-        "| :--- | :---: | :---: |",
-    ])
-    
+    lines.extend(
+        [
+            "",
+            "## Method Distribution",
+            "| Method | Count | Percentage |",
+            "| :--- | :---: | :---: |",
+        ]
+    )
+
     total_methods = sum(stats_data.method_distribution.values())
-    for method, count in sorted(stats_data.method_distribution.items(), key=lambda x: x[1], reverse=True):
+    for method, count in sorted(
+        stats_data.method_distribution.items(), key=lambda x: x[1], reverse=True
+    ):
         pct = (count / total_methods) * 100 if total_methods > 0 else 0.0
         lines.append(f"| {method} | {count} | {pct:.1f}% |")
 
@@ -1291,6 +1326,7 @@ def stats(
     ),
 ) -> None:
     """Display a comprehensive statistical dashboard for a single session."""
+
     async def _run() -> None:
         db = Database()
         try:
@@ -1338,8 +1374,12 @@ def stats(
 
         # RENDER TO TERMINAL
         # Session Header Panel
-        status_style = "green" if stats_data.status == "completed" else ("red" if stats_data.status == "error" else "yellow")
-        
+        status_style = (
+            "green"
+            if stats_data.status == "completed"
+            else ("red" if stats_data.status == "error" else "yellow")
+        )
+
         duration_str = "N/A"
         if stats_data.duration_seconds is not None:
             m, s = divmod(stats_data.duration_seconds, 60)
@@ -1351,8 +1391,8 @@ def stats(
             f"Started: {stats_data.started_at or 'N/A'} | Ended: {stats_data.ended_at or 'Ongoing'} | Duration: {duration_str}",
             f"Messages: {stats_data.total_messages} total ({stats_data.client_to_server_count} → server, {stats_data.server_to_client_count} ← client)",
         ]
-        
-        title_friendly = f" - \"{stats_data.friendly_name}\"" if stats_data.friendly_name else ""
+
+        title_friendly = f' - "{stats_data.friendly_name}"' if stats_data.friendly_name else ""
         console.print(
             Panel(
                 "\n".join(header_lines),
@@ -1378,9 +1418,11 @@ def stats(
                 err_rate_val = tool.error_rate * 100
                 err_rate_str = f"{err_rate_val:.0f}%"
                 if tool.errors_count > 0:
-                    err_rate_str += f" ({tool.errors_count} error{'s' if tool.errors_count > 1 else ''})"
+                    err_rate_str += (
+                        f" ({tool.errors_count} error{'s' if tool.errors_count > 1 else ''})"
+                    )
                 err_style = "red" if tool.errors_count > 0 else "green"
-                
+
                 table.add_row(
                     tool.name,
                     str(tool.calls),
@@ -1395,9 +1437,15 @@ def stats(
             console.print("No latency data available.")
         else:
             spark = generate_sparkline(stats_data.latency_trend, width=30)
-            min_l = f"{stats_data.latency_min:.1f}ms" if stats_data.latency_min is not None else "N/A"
-            max_l = f"{stats_data.latency_max:.1f}ms" if stats_data.latency_max is not None else "N/A"
-            avg_l = f"{stats_data.latency_avg:.1f}ms" if stats_data.latency_avg is not None else "N/A"
+            min_l = (
+                f"{stats_data.latency_min:.1f}ms" if stats_data.latency_min is not None else "N/A"
+            )
+            max_l = (
+                f"{stats_data.latency_max:.1f}ms" if stats_data.latency_max is not None else "N/A"
+            )
+            avg_l = (
+                f"{stats_data.latency_avg:.1f}ms" if stats_data.latency_avg is not None else "N/A"
+            )
             console.print(f"{spark} (min {min_l}, max {max_l}, avg {avg_l})")
 
         # Errors by Category
@@ -1407,7 +1455,7 @@ def stats(
         else:
             err_chart = generate_bar_chart(stats_data.errors_by_category, max_width=20)
             for label, count, pct, bar_str in err_chart:
-                console.print(f"{label}: {count} [red]{bar_str}[/red] ({pct*100:.0f}%)")
+                console.print(f"{label}: {count} [red]{bar_str}[/red] ({pct * 100:.0f}%)")
 
         # Method Distribution
         console.print("\n🔁 [bold]Method Distribution[/bold]")
@@ -1416,7 +1464,7 @@ def stats(
         else:
             method_chart = generate_bar_chart(stats_data.method_distribution, max_width=20)
             for label, count, pct, bar_str in method_chart:
-                console.print(f"{label}: {count} [blue]{bar_str}[/blue] ({pct*100:.0f}%)")
+                console.print(f"{label}: {count} [blue]{bar_str}[/blue] ({pct * 100:.0f}%)")
 
         # Error Trend Sparkline
         console.print("\n📈 [bold]Error Trend[/bold] (error density over time)")
@@ -1436,7 +1484,9 @@ def stats(
 @app.command(name="compare")
 def compare(
     session_id_a: int = typer.Argument(..., help="The ID of the baseline session (old)"),
-    session_id_b: int = typer.Argument(..., help="The ID of the target session to compare against (new)"),
+    session_id_b: int = typer.Argument(
+        ..., help="The ID of the target session to compare against (new)"
+    ),
     json_mode: bool = typer.Option(
         False,
         "--json",
@@ -1444,6 +1494,7 @@ def compare(
     ),
 ) -> None:
     """Highlight differences between two debugging sessions."""
+
     async def _run() -> None:
         db = Database()
         try:
@@ -1473,24 +1524,38 @@ def compare(
             return
 
         # RENDER COMPARISON TO TERMINAL
-        console.print(f"[bold]Comparing session #{session_id_a} (old) vs #{session_id_b} (new)[/bold]\n")
+        console.print(
+            f"[bold]Comparing session #{session_id_a} (old) vs #{session_id_b} (new)[/bold]\n"
+        )
 
         # Duration change
-        dur_a_str = f"{stats_a.duration_seconds}s" if stats_a.duration_seconds is not None else "N/A"
-        dur_b_str = f"{stats_b.duration_seconds}s" if stats_b.duration_seconds is not None else "N/A"
-        
+        dur_a_str = (
+            f"{stats_a.duration_seconds}s" if stats_a.duration_seconds is not None else "N/A"
+        )
+        dur_b_str = (
+            f"{stats_b.duration_seconds}s" if stats_b.duration_seconds is not None else "N/A"
+        )
+
         dur_color = "white"
         if comparison.duration_change_pct is not None:
             if comparison.duration_change_pct < 0:
                 dur_color = "green"
             elif comparison.duration_change_pct > 0:
                 dur_color = "red"
-        
-        console.print(f"Duration: {dur_a_str} → {dur_b_str} ([{dur_color}]{comparison.duration_change_str}[/{dur_color}])")
+
+        console.print(
+            f"Duration: {dur_a_str} → {dur_b_str} ([{dur_color}]{comparison.duration_change_str}[/{dur_color}])"
+        )
 
         # Messages change
-        msg_diff_str = f"{comparison.messages_change_abs:+d} messages" if comparison.messages_change_abs != 0 else "no change"
-        console.print(f"Total messages: {comparison.messages_a} → {comparison.messages_b} ({msg_diff_str})\n")
+        msg_diff_str = (
+            f"{comparison.messages_change_abs:+d} messages"
+            if comparison.messages_change_abs != 0
+            else "no change"
+        )
+        console.print(
+            f"Total messages: {comparison.messages_a} → {comparison.messages_b} ({msg_diff_str})\n"
+        )
 
         # Tool Call Changes Table
         console.print("📊 [bold]Tool Call Changes[/bold]")
@@ -1519,14 +1584,18 @@ def compare(
 
                 lat_a = f"{tc.avg_latency_a:.1f}ms" if tc.avg_latency_a is not None else "—"
                 lat_b = f"{tc.avg_latency_b:.1f}ms" if tc.avg_latency_b is not None else "—"
-                
+
                 lat_change_str = ""
                 if tc.avg_latency_change_pct is not None:
                     if tc.avg_latency_change_pct < 0:
-                        lat_change_str = f" [green](↓ {abs(tc.avg_latency_change_pct):.0f}% faster)[/green]"
+                        lat_change_str = (
+                            f" [green](↓ {abs(tc.avg_latency_change_pct):.0f}% faster)[/green]"
+                        )
                     elif tc.avg_latency_change_pct > 0:
-                        lat_change_str = f" [red](↑ {abs(tc.avg_latency_change_pct):.0f}% slower)[/red]"
-                
+                        lat_change_str = (
+                            f" [red](↑ {abs(tc.avg_latency_change_pct):.0f}% slower)[/red]"
+                        )
+
                 table.add_row(
                     tc.name,
                     str(tc.calls_a),
@@ -1543,7 +1612,7 @@ def compare(
             err_color = "green"
         elif "regression" in comparison.error_rate_change_str:
             err_color = "red"
-        
+
         console.print(
             f"Old: {comparison.error_rate_a:.1f}% ({comparison.errors_a} errors) → "
             f"New: {comparison.error_rate_b:.1f}% ({comparison.errors_b} errors) "
@@ -1574,7 +1643,9 @@ def compare(
             if "removed" in tc.change_str:
                 warnings.append(f"tool '{tc.name}' was removed")
             elif tc.avg_latency_change_pct is not None and tc.avg_latency_change_pct > 20:
-                warnings.append(f"tool '{tc.name}' got significantly slower (+{tc.avg_latency_change_pct:.0f}%)")
+                warnings.append(
+                    f"tool '{tc.name}' got significantly slower (+{tc.avg_latency_change_pct:.0f}%)"
+                )
 
         if warnings:
             summary_text += " [yellow]Verify changes: " + ", ".join(warnings) + ".[/yellow]"
@@ -1635,15 +1706,20 @@ def export(
 
     # Config fallbacks: export.default_format and export.pretty_json
     from mcp_debugger.config import get_config
+
     _cfg = get_config()
     # Only apply config default when the user didn't explicitly pass --format
     # (typer default is "json" so we can't distinguish; treat "json" as config-eligible)
-    effective_format = format if format != "json" else str(_cfg.get("export.default_format", "json"))
+    effective_format = (
+        format if format != "json" else str(_cfg.get("export.default_format", "json"))
+    )
     effective_pretty = pretty or bool(_cfg.get("export.pretty_json", False))
 
     fmt = effective_format.lower().strip()
     if fmt not in {"json", "markdown", "otlp"}:
-        console.print(f"[red]Error: unknown format '{effective_format}'. Choose json, markdown, or otlp.[/red]")
+        console.print(
+            f"[red]Error: unknown format '{effective_format}'. Choose json, markdown, or otlp.[/red]"
+        )
         sys.exit(1)
 
     async def _run() -> None:
@@ -1666,6 +1742,7 @@ def export(
 
         try:
             from mcp_debugger.analytics import aggregate_session_stats as _agg
+
             stats = await _agg(db, session_id)
         except Exception as e:
             console.print(f"[red]Error computing session stats: {e}[/red]")
@@ -1689,9 +1766,7 @@ def export(
                     limit=limit,
                 )
                 span_count = exporter_otlp.export(dict(session), messages)
-                console.print(
-                    f"[green]Exported {span_count} span(s) to {endpoint}[/green]"
-                )
+                console.print(f"[green]Exported {span_count} span(s) to {endpoint}[/green]")
             except Exception as e:
                 console.print(f"[yellow]Warning: OTLP export failed: {e}[/yellow]")
             return
@@ -1699,9 +1774,11 @@ def export(
         # ---- JSON / Markdown ------------------------------------------------
         if fmt == "json":
             from mcp_debugger.exporters.json_exporter import JSONExporter
+
             exporter_obj: Any = JSONExporter(pretty=effective_pretty, include_raw=include_raw)
         else:
             from mcp_debugger.exporters.markdown_exporter import MarkdownExporter
+
             exporter_obj = MarkdownExporter(include_raw=include_raw, pretty=effective_pretty)
 
         if output:
@@ -1726,11 +1803,12 @@ def export(
 
 @app.command(name="replay")
 def replay(
-    session_id: int = typer.Argument(
-        ..., help="ID of the recorded session to replay"
-    ),
+    session_id: int = typer.Argument(..., help="ID of the recorded session to replay"),
     server: Optional[str] = typer.Option(
-        None, "--server", "-s", help="Command to launch the target server (overrides --alias and config)"
+        None,
+        "--server",
+        "-s",
+        help="Command to launch the target server (overrides --alias and config)",
     ),
     alias: Optional[str] = typer.Option(
         None, "--alias", "-a", help="Server alias defined in config [aliases] section"
@@ -1747,12 +1825,8 @@ def replay(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Show all messages with diffs (even matches)"
     ),
-    json_mode: bool = typer.Option(
-        False, "--json", help="Output raw JSON report"
-    ),
-    output: Optional[Path] = typer.Option(
-        None, "--output", "-o", help="Write output to a file"
-    ),
+    json_mode: bool = typer.Option(False, "--json", help="Output raw JSON report"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write output to a file"),
     save: bool = typer.Option(
         False, "--save", help="Save replay results to the replays database table"
     ),
@@ -1760,7 +1834,9 @@ def replay(
         False, "--no-diff", help="Skip detailed diff output (only show summary)"
     ),
     otlp_export: bool = typer.Option(
-        False, "--otlp-export", help="Export replay results to an OTLP collector (requires mcp-debugger[otlp])"
+        False,
+        "--otlp-export",
+        help="Export replay results to an OTLP collector (requires mcp-debugger[otlp])",
     ),
     otlp_endpoint: Optional[str] = typer.Option(
         None, "--otlp-endpoint", help="OTLP gRPC collector endpoint"
@@ -1778,6 +1854,7 @@ def replay(
     # Config fallbacks (CLI flags override, then config, then hardcoded defaults)
     # ------------------------------------------------------------------
     from mcp_debugger.config import get_config
+
     _cfg = get_config()
 
     # Resolve server: --server > --alias > config.replay.default_server
@@ -1796,12 +1873,18 @@ def replay(
         sys.exit(1)
 
     # Numeric and boolean fallbacks
-    effective_timeout: int = timeout if timeout is not None else int(_cfg.get("replay.timeout", 5000))
+    effective_timeout: int = (
+        timeout if timeout is not None else int(_cfg.get("replay.timeout", 5000))
+    )
     effective_save: bool = save or bool(_cfg.get("replay.auto_save", False))
     effective_no_diff: bool = no_diff or bool(_cfg.get("replay.diff_only", False))
     effective_otlp_export: bool = otlp_export or bool(_cfg.get("replay.otlp_export", False))
-    effective_otlp_endpoint: str = otlp_endpoint or str(_cfg.get("replay.otlp_endpoint", "http://localhost:4317"))
-    effective_otlp_service_name: str = otlp_service_name or str(_cfg.get("replay.otlp_service_name", "mcp-debugger"))
+    effective_otlp_endpoint: str = otlp_endpoint or str(
+        _cfg.get("replay.otlp_endpoint", "http://localhost:4317")
+    )
+    effective_otlp_service_name: str = otlp_service_name or str(
+        _cfg.get("replay.otlp_service_name", "mcp-debugger")
+    )
 
     def format_payload(val: Any) -> str:
         if val is None:
@@ -1830,6 +1913,7 @@ def replay(
             sys.exit(1)
 
         from mcp_debugger.replay.engine import ReplayEngine
+
         engine = ReplayEngine(db)
 
         # Set up progress bar if not in JSON mode and output is terminal
@@ -1838,6 +1922,7 @@ def replay(
 
         if not json_mode:
             from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
+
             progress_bar = Progress(
                 TextColumn(f"Replaying session {session_id}..."),
                 BarColumn(),
@@ -1884,18 +1969,24 @@ def replay(
 
         if failed_to_start:
             # Print error and exit with code 2
-            console.print(f"[red]Error: Target server failed to start: {result.messages[0].error}[/red]")
+            console.print(
+                f"[red]Error: Target server failed to start: {result.messages[0].error}[/red]"
+            )
             sys.exit(2)
 
         # Check if server crashed during replay
         crashed_msg = None
         for msg in result.messages:
-            if msg.error and ("terminated" in msg.error.lower() or "write error" in msg.error.lower()):
+            if msg.error and (
+                "terminated" in msg.error.lower() or "write error" in msg.error.lower()
+            ):
                 crashed_msg = msg
                 break
 
         if crashed_msg is not None:
-            console.print(f"[red]Error: Server crashed during message #{crashed_msg.original_message_id}: {crashed_msg.error}[/red]")
+            console.print(
+                f"[red]Error: Server crashed during message #{crashed_msg.original_message_id}: {crashed_msg.error}[/red]"
+            )
             sys.exit(2)
 
         # Check if server timed out
@@ -1903,7 +1994,9 @@ def replay(
             # Print timeout details and exit with code 2
             timed_out_msgs = [m for m in result.messages if m.error and "Timeout" in m.error]
             if timed_out_msgs:
-                console.print(f"[red]Error: Server timed out during message #{timed_out_msgs[0].original_message_id}: {timed_out_msgs[0].error}[/red]")
+                console.print(
+                    f"[red]Error: Server timed out during message #{timed_out_msgs[0].original_message_id}: {timed_out_msgs[0].error}[/red]"
+                )
             sys.exit(2)
 
         # Setup redirection for output
@@ -1944,7 +2037,7 @@ def replay(
                         "diff": [d.model_dump() for d in m.diff] if m.diff else None,
                     }
                     for m in result.messages
-                ]
+                ],
             }
             json_str = json.dumps(json_report, indent=2)
             if output:
@@ -1965,8 +2058,12 @@ def replay(
                 "─" * 65,
                 f"Total messages replayed: {result.total_messages_replayed}",
                 f"[green]✓ Successful matches: {successful_matches}[/green]",
-                f"[red]✗ Mismatches: {mismatches}[/red]" if mismatches else f"✗ Mismatches: {mismatches}",
-                f"[yellow]⏱ Timeouts: {timeouts}[/yellow]" if timeouts else f"⏱ Timeouts: {timeouts}",
+                f"[red]✗ Mismatches: {mismatches}[/red]"
+                if mismatches
+                else f"✗ Mismatches: {mismatches}",
+                f"[yellow]⏱ Timeouts: {timeouts}[/yellow]"
+                if timeouts
+                else f"⏱ Timeouts: {timeouts}",
                 f"[red]❌ Errors: {errors}[/red]" if errors else f"❌ Errors: {errors}",
             ]
             summary_panel = Panel(
@@ -1980,9 +2077,13 @@ def replay(
             for m in result.messages:
                 if m.matches:
                     if verbose:
-                        run_console.print(f"[green]✓[/green] Message #{m.original_message_id}: {m.method}")
+                        run_console.print(
+                            f"[green]✓[/green] Message #{m.original_message_id}: {m.method}"
+                        )
                 else:
-                    run_console.print(f"\n[red]✗[/red] Message #{m.original_message_id}: {m.method} (client → server)")
+                    run_console.print(
+                        f"\n[red]✗[/red] Message #{m.original_message_id}: {m.method} (client → server)"
+                    )
                     if not effective_no_diff:
                         # Show mismatch details
                         if m.method == "tools/call" and m.request_sent:
@@ -2011,7 +2112,9 @@ def replay(
                     run_console.print(f"\nMismatched Message IDs: {mismatched_ids}")
 
             if effective_save and result.replay_id is not None and result.replay_id != -1:
-                run_console.print(f"\nReplay saved as replay ID {result.replay_id}. Use 'mcp-debugger replay show {result.replay_id}' to view later.")
+                run_console.print(
+                    f"\nReplay saved as replay ID {result.replay_id}. Use 'mcp-debugger replay show {result.replay_id}' to view later."
+                )
 
             if output:
                 try:
@@ -2028,13 +2131,16 @@ def replay(
         if effective_otlp_export:
             try:
                 from mcp_debugger.exporters.otlp_replay_exporter import OTLPReplayExporter
+
                 exporter_otlp = OTLPReplayExporter(
                     endpoint=effective_otlp_endpoint,
                     insecure=otlp_insecure,
                     service_name=effective_otlp_service_name,
                 )
                 span_count = exporter_otlp.export(result)
-                console.print(f"[dim]OTLP: exported {span_count} spans to {effective_otlp_endpoint}[/dim]")
+                console.print(
+                    f"[dim]OTLP: exported {span_count} spans to {effective_otlp_endpoint}[/dim]"
+                )
             except ImportError as ie:
                 console.print(f"[yellow]Warning: {ie}[/yellow]")
             except Exception as oe:

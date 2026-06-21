@@ -316,6 +316,7 @@ def test_errors_command_missing_session(mock_db_path: str, runner: CliRunner) ->
 
 def test_errors_command_empty_session(mock_db_path: str, runner: CliRunner) -> None:
     """Verify errors command when session exists but has no errors."""
+
     async def create_empty() -> None:
         db = Database(db_path=mock_db_path)
         await db.connect()
@@ -334,6 +335,7 @@ def test_errors_command_empty_session(mock_db_path: str, runner: CliRunner) -> N
 
 def test_errors_command_populated(mock_db_path: str, runner: CliRunner) -> None:
     """Verify errors command lists, filters, and formats classified errors."""
+
     async def populate() -> None:
         db = Database(db_path=mock_db_path)
         await db.connect()
@@ -392,6 +394,7 @@ def test_errors_command_populated(mock_db_path: str, runner: CliRunner) -> None:
 
 def test_inspect_shows_classified_errors(mock_db_path: str, runner: CliRunner) -> None:
     """Verify that inspect command renders classified error badge and suggestion dynamically or from DB."""
+
     async def populate() -> None:
         db = Database(db_path=mock_db_path)
         await db.connect()
@@ -408,7 +411,11 @@ def test_inspect_shows_classified_errors(mock_db_path: str, runner: CliRunner) -
         msg_id = await db.log_message(
             session_id=session_id,
             direction="server_to_client",
-            message={"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "Method not found"}},
+            message={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {"code": -32601, "message": "Method not found"},
+            },
         )
 
         # Log the classified error referencing the message

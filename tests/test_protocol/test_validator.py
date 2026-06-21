@@ -225,14 +225,18 @@ def test_validator_invalid_method_format() -> None:
     # method is empty or not string
     res = validator.validate_message({"jsonrpc": "2.0", "id": 1, "method": ""}, "client_to_server")
     assert any(not r.passed and r.rule_name == "method_format" for r in res)
-    res2 = validator.validate_message({"jsonrpc": "2.0", "id": 1, "method": 123}, "client_to_server")
+    res2 = validator.validate_message(
+        {"jsonrpc": "2.0", "id": 1, "method": 123}, "client_to_server"
+    )
     assert any(not r.passed and r.rule_name == "method_format" for r in res2)
 
 
 def test_validator_request_invalid_id_type() -> None:
     """Verify that request ID type must be integer or string."""
     validator = ProtocolValidator()
-    res = validator.validate_message({"jsonrpc": "2.0", "id": [1], "method": "tools/list"}, "client_to_server")
+    res = validator.validate_message(
+        {"jsonrpc": "2.0", "id": [1], "method": "tools/list"}, "client_to_server"
+    )
     assert any(not r.passed and r.rule_name == "request_id_type" for r in res)
 
 
@@ -240,52 +244,38 @@ def test_validator_response_conflicts_and_id() -> None:
     """Verify that responses with conflicting fields or invalid ID type are flagged."""
     validator = ProtocolValidator()
     # both result and error
-    res1 = validator.validate_message({"jsonrpc": "2.0", "id": 1, "result": {}, "error": {}}, "server_to_client")
+    res1 = validator.validate_message(
+        {"jsonrpc": "2.0", "id": 1, "result": {}, "error": {}}, "server_to_client"
+    )
     assert any(not r.passed and r.rule_name == "response_envelope" for r in res1)
-    
+
     # neither result nor error
     res2 = validator.validate_message({"jsonrpc": "2.0", "id": 1}, "server_to_client")
     assert any(not r.passed and r.rule_name == "response_envelope" for r in res2)
-    
+
     # invalid response ID type
-    res3 = validator.validate_message({"jsonrpc": "2.0", "id": [1], "result": {}}, "server_to_client")
+    res3 = validator.validate_message(
+        {"jsonrpc": "2.0", "id": [1], "result": {}}, "server_to_client"
+    )
     assert any(not r.passed and r.rule_name == "response_id_type" for r in res3)
 
 
 def test_validator_invalid_tool_definitions() -> None:
     """Verify that malformed tool definitions in tools/list response are flagged."""
     validator = ProtocolValidator()
-    
+
     # Tool not a dictionary
-    invalid_resp1 = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "tools": ["not-a-dict"]
-        }
-    }
+    invalid_resp1 = {"jsonrpc": "2.0", "id": 1, "result": {"tools": ["not-a-dict"]}}
     res1 = validator.validate_message(invalid_resp1, "server_to_client")
     assert any(not r.passed and r.rule_name == "tool_format" for r in res1)
 
     # Tool missing name or invalid type
-    invalid_resp2 = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "tools": [{"description": "desc"}]
-        }
-    }
+    invalid_resp2 = {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"description": "desc"}]}}
     res2 = validator.validate_message(invalid_resp2, "server_to_client")
     assert any(not r.passed and r.rule_name == "tool_name" for r in res2)
 
     # Tool missing inputSchema
-    invalid_resp3 = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "tools": [{"name": "my_tool"}]
-        }
-    }
+    invalid_resp3 = {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "my_tool"}]}}
     res3 = validator.validate_message(invalid_resp3, "server_to_client")
     assert any(not r.passed and r.rule_name == "tool_input_schema" for r in res3)
 
@@ -293,9 +283,7 @@ def test_validator_invalid_tool_definitions() -> None:
     invalid_resp4 = {
         "jsonrpc": "2.0",
         "id": 1,
-        "result": {
-            "tools": [{"name": "my_tool", "inputSchema": "not-a-dict"}]
-        }
+        "result": {"tools": [{"name": "my_tool", "inputSchema": "not-a-dict"}]},
     }
     res4 = validator.validate_message(invalid_resp4, "server_to_client")
     assert any(not r.passed and r.rule_name == "tool_input_schema_format" for r in res4)
@@ -307,7 +295,7 @@ async def test_validator_session_exist_checks() -> None:
     validator = ProtocolValidator()
     db = AsyncMock(spec=Database)
     db.get_session.return_value = None
-    
+
     res1 = await validator.validate_session(999, db)
     assert len(res1) == 1
     assert not res1[0].passed
@@ -315,7 +303,7 @@ async def test_validator_session_exist_checks() -> None:
 
     db.get_session.return_value = {"id": 1}
     db.get_messages.return_value = []
-    
+
     res2 = await validator.validate_session(1, db)
     assert len(res2) == 1
     assert not res2[0].passed
@@ -328,7 +316,7 @@ async def test_validator_session_handshake_errors() -> None:
     validator = ProtocolValidator()
     db = AsyncMock(spec=Database)
     db.get_session.return_value = {"id": 1, "status": "running"}
-    
+
     # Case A: Request sent before initialize response was received
     db.get_messages.return_value = [
         {
@@ -345,10 +333,14 @@ async def test_validator_session_handshake_errors() -> None:
             "direction": "client_to_server",
             "message_type": "request",
             "method": "tools/list",
-        }
+        },
     ]
     resA = await validator.validate_session(1, db)
-    assert any(not r.passed and r.message == "Client request 'tools/list' sent before server initialize response" for r in resA)
+    assert any(
+        not r.passed
+        and r.message == "Client request 'tools/list' sent before server initialize response"
+        for r in resA
+    )
 
     # Case B: Request sent before notifications/initialized is sent
     db.get_messages.return_value = [
@@ -370,10 +362,15 @@ async def test_validator_session_handshake_errors() -> None:
             "direction": "client_to_server",
             "message_type": "request",
             "method": "tools/list",
-        }
+        },
     ]
     resB = await validator.validate_session(1, db)
-    assert any(not r.passed and r.rule_name == "handshake_order" and "notifications/initialized" in r.message for r in resB)
+    assert any(
+        not r.passed
+        and r.rule_name == "handshake_order"
+        and "notifications/initialized" in r.message
+        for r in resB
+    )
 
     # Case C: Client sent notifications/initialized before initialize response was received
     db.get_messages.return_value = [
@@ -388,10 +385,15 @@ async def test_validator_session_handshake_errors() -> None:
             "direction": "client_to_server",
             "message_type": "notification",
             "method": "notifications/initialized",
-        }
+        },
     ]
     resC = await validator.validate_session(1, db)
-    assert any(not r.passed and r.message == "Client sent 'notifications/initialized' before initialize response was received" for r in resC)
+    assert any(
+        not r.passed
+        and r.message
+        == "Client sent 'notifications/initialized' before initialize response was received"
+        for r in resC
+    )
 
     # Case D: Client sent other notification before completing initialized handshake
     db.get_messages.return_value = [
@@ -406,8 +408,9 @@ async def test_validator_session_handshake_errors() -> None:
             "direction": "client_to_server",
             "message_type": "notification",
             "method": "custom/notify",
-        }
+        },
     ]
     resD = await validator.validate_session(1, db)
-    assert any(not r.passed and "before completing initialized handshake" in r.message for r in resD)
-
+    assert any(
+        not r.passed and "before completing initialized handshake" in r.message for r in resD
+    )

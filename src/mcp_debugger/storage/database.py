@@ -108,9 +108,7 @@ class Database:
         batch: List[Tuple[Any, ...]] = []
         while True:
             try:
-                item = await asyncio.wait_for(
-                    self._write_queue.get(), timeout=self._flush_interval
-                )
+                item = await asyncio.wait_for(self._write_queue.get(), timeout=self._flush_interval)
                 if item is None:  # sentinel – exit after draining
                     if batch:
                         await self._commit_batch(batch)
@@ -325,8 +323,7 @@ class Database:
         #   get_replay_messages: WHERE session_id=? AND direction=? ORDER BY timestamp ASC
         #   get_messages(method=?): WHERE session_id=? AND method=?
         await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_messages_session_ts "
-            "ON messages(session_id, timestamp);"
+            "CREATE INDEX IF NOT EXISTS idx_messages_session_ts ON messages(session_id, timestamp);"
         )
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_messages_session_method "
@@ -490,7 +487,6 @@ class Database:
             logger.warning("Failed to log message: %s", e)
             return -1
 
-
     async def log_tool(self, session_id: int, tool: Union[Dict[str, Any], Any]) -> None:
         """Log a tool definition discovered in tools/list response."""
         try:
@@ -547,7 +543,15 @@ class Database:
                 INSERT INTO errors (session_id, message_id, error_code, error_type, error_message, suggestion, stack_trace)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, message_id, error_code, error_type, error_message, suggestion, stack_trace),
+                (
+                    session_id,
+                    message_id,
+                    error_code,
+                    error_type,
+                    error_message,
+                    suggestion,
+                    stack_trace,
+                ),
             ) as cursor:
                 inserted_id = cursor.lastrowid
             await conn.execute(
@@ -865,14 +869,16 @@ class Database:
                             except Exception:
                                 original_response["error"] = row["resp_error"]
 
-                    results.append({
-                        "original_message_id": row["req_id"],
-                        "message_id": row["req_msg_id"],
-                        "method": row["method"],
-                        "params": params,
-                        "message_type": row["message_type"],
-                        "original_response": original_response,
-                    })
+                    results.append(
+                        {
+                            "original_message_id": row["req_id"],
+                            "message_id": row["req_msg_id"],
+                            "method": row["method"],
+                            "params": params,
+                            "message_type": row["message_type"],
+                            "original_response": original_response,
+                        }
+                    )
                 return results
         except Exception as e:
             logger.warning("Failed to get replay messages: %s", e)
@@ -941,4 +947,3 @@ class Database:
         except Exception as e:
             logger.warning("Failed to save replay: %s", e)
             return -1
-

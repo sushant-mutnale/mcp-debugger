@@ -32,6 +32,7 @@ def test_validate_recorded_session_missing(mock_db_path: str, runner: CliRunner)
 
 def test_validate_recorded_session_passing(mock_db_path: str, runner: CliRunner) -> None:
     """Verify validating a compliant recorded session."""
+
     async def populate() -> None:
         db = Database(db_path=mock_db_path)
         await db.connect()
@@ -105,6 +106,7 @@ def test_validate_recorded_session_passing(mock_db_path: str, runner: CliRunner)
 
 def test_validate_recorded_session_critical_failures(mock_db_path: str, runner: CliRunner) -> None:
     """Verify validating a recorded session with critical errors."""
+
     async def populate() -> None:
         db = Database(db_path=mock_db_path)
         await db.connect()
@@ -131,7 +133,8 @@ def test_validate_recorded_session_critical_failures(mock_db_path: str, runner: 
 def test_validate_live_server_success(tmp_path: Any, runner: CliRunner) -> None:
     """Test live server validation with a compliant mock subprocess python script."""
     server_script = tmp_path / "mock_server.py"
-    server_script.write_text("""
+    server_script.write_text(
+        """
 import sys
 import json
 
@@ -189,7 +192,9 @@ def main():
 
 if __name__ == "__main__":
     main()
-""".strip(), encoding="utf-8")
+""".strip(),
+        encoding="utf-8",
+    )
 
     cmd = f"{sys.executable} {server_script}"
     result = runner.invoke(app, ["validate", "--server", cmd])
@@ -201,10 +206,13 @@ if __name__ == "__main__":
 def test_validate_live_server_timeout(tmp_path: Any, runner: CliRunner) -> None:
     """Test live server validation timing out if the server hangs."""
     server_script = tmp_path / "hanging_server.py"
-    server_script.write_text("""
+    server_script.write_text(
+        """
 import time
 time.sleep(20)
-""".strip(), encoding="utf-8")
+""".strip(),
+        encoding="utf-8",
+    )
 
     def mock_wait_for(coro: Any, timeout: Any) -> Any:
         coro.close()
@@ -241,6 +249,7 @@ class MockStreamReader:
 class MockStreamWriter:
     def write(self, data):
         pass
+
     async def drain(self):
         pass
 
@@ -272,65 +281,91 @@ async def test_run_live_validation_edge_cases() -> None:
 
     # 2. Empty split command
     status, results = await run_live_validation("")
-    assert any(r.rule_name == "server_startup" and "No valid server command" in r.message for r in results)
+    assert any(
+        r.rule_name == "server_startup" and "No valid server command" in r.message for r in results
+    )
 
     # 3. Spawn fails with general exception
     with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("Spawn error")):
         with patch("asyncio.create_subprocess_shell", side_effect=Exception("Shell error")):
             status, results = await run_live_validation("invalid-cmd")
-            assert any(r.rule_name == "server_startup" and "Shell error" in r.message for r in results)
+            assert any(
+                r.rule_name == "server_startup" and "Shell error" in r.message for r in results
+            )
 
     # 3b. Spawn fails with general exception on create_subprocess_exec (goes to outer except)
     with patch("asyncio.create_subprocess_exec", side_effect=Exception("General spawn error")):
         status, results = await run_live_validation("invalid-cmd")
-        assert any(r.rule_name == "server_startup" and "General spawn error" in r.message for r in results)
+        assert any(
+            r.rule_name == "server_startup" and "General spawn error" in r.message for r in results
+        )
 
     # 4. Initialize response not received (EOF)
     mock_proc_eof = MockProcess([b"\n", b"invalid-json\n", b""])
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc_eof):
         status, results = await run_live_validation("mock-cmd")
-        assert any(r.rule_name == "server_connection" and "Connection lost" in r.message for r in results)
+        assert any(
+            r.rule_name == "server_connection" and "Connection lost" in r.message for r in results
+        )
 
     # 4b. Initialize response not received (ID mismatch / 20 lines read but not found)
     mock_proc_mismatch = MockProcess([b'{"jsonrpc": "2.0", "id": 999, "result": {}}\n'] * 21)
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc_mismatch):
         status, results = await run_live_validation("mock-cmd")
-        assert any(r.rule_name == "server_startup" and "Initialize response not received" in r.message for r in results)
+        assert any(
+            r.rule_name == "server_startup" and "Initialize response not received" in r.message
+            for r in results
+        )
 
     # 5. Initialize success, but tools/list stdout closed
-    mock_proc_tools_eof = MockProcess([
-        b'{"jsonrpc": "2.0", "id": 1, "result": {}}\n',
-        b"\n",
-        b"invalid-json\n",
-        b""
-    ])
+    mock_proc_tools_eof = MockProcess(
+        [b'{"jsonrpc": "2.0", "id": 1, "result": {}}\n', b"\n", b"invalid-json\n", b""]
+    )
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc_tools_eof):
         status, results = await run_live_validation("mock-cmd")
-        assert any(r.rule_name == "server_connection" and "Connection lost" in r.message for r in results)
+        assert any(
+            r.rule_name == "server_connection" and "Connection lost" in r.message for r in results
+        )
 
     # 5b. Initialize success, but tools/list response not received (ID mismatch)
-    mock_proc_tools_mismatch = MockProcess([
-        b'{"jsonrpc": "2.0", "id": 1, "result": {}}\n',
-    ] + [b'{"jsonrpc": "2.0", "id": 999, "result": {}}\n'] * 21)
+    mock_proc_tools_mismatch = MockProcess(
+        [
+            b'{"jsonrpc": "2.0", "id": 1, "result": {}}\n',
+        ]
+        + [b'{"jsonrpc": "2.0", "id": 999, "result": {}}\n'] * 21
+    )
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc_tools_mismatch):
         status, results = await run_live_validation("mock-cmd")
-        assert any(r.rule_name == "server_startup" and "tools/list response not received" in r.message for r in results)
+        assert any(
+            r.rule_name == "server_startup" and "tools/list response not received" in r.message
+            for r in results
+        )
 
     # 6. Process termination throws exception and os.remove throws exception and validation engine fails
-    mock_proc_fail = MockProcess([
-        b'{"jsonrpc": "2.0", "id": 1, "result": {}}\n',
-        b'{"jsonrpc": "2.0", "id": 2, "result": {"tools": []}}\n'
-    ], raise_on_terminate=True)
+    mock_proc_fail = MockProcess(
+        [
+            b'{"jsonrpc": "2.0", "id": 1, "result": {}}\n',
+            b'{"jsonrpc": "2.0", "id": 2, "result": {"tools": []}}\n',
+        ],
+        raise_on_terminate=True,
+    )
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc_fail):
         with patch("os.remove", side_effect=OSError("Remove error")):
-            with patch("mcp_debugger.protocol.validator.ProtocolValidator.validate_session", side_effect=Exception("Validate error")):
+            with patch(
+                "mcp_debugger.protocol.validator.ProtocolValidator.validate_session",
+                side_effect=Exception("Validate error"),
+            ):
                 status, results = await run_live_validation("mock-cmd")
-                assert any(r.rule_name == "validation_engine" and "Validate error" in r.message for r in results)
+                assert any(
+                    r.rule_name == "validation_engine" and "Validate error" in r.message
+                    for r in results
+                )
 
 
 def test_validate_dict_compatibility(runner: CliRunner, mock_db_path: str) -> None:
     """Verify validate command uses dict() fallback if model_dump is missing."""
     import json
+
     class LegacyValidationResult:
         def __init__(self):
             self.rule_name = "test_rule"
@@ -338,13 +373,14 @@ def test_validate_dict_compatibility(runner: CliRunner, mock_db_path: str) -> No
             self.message = "Legacy success"
             self.severity = "info"
             self.error_code = None
+
         def dict(self):
             return {
                 "rule_name": self.rule_name,
                 "passed": self.passed,
                 "message": self.message,
                 "severity": self.severity,
-                "error_code": self.error_code
+                "error_code": self.error_code,
             }
 
     async def populate() -> None:
@@ -355,12 +391,12 @@ def test_validate_dict_compatibility(runner: CliRunner, mock_db_path: str) -> No
 
     asyncio.run(populate())
 
-    with patch("mcp_debugger.protocol.validator.ProtocolValidator.validate_session", return_value=[LegacyValidationResult()]):
+    with patch(
+        "mcp_debugger.protocol.validator.ProtocolValidator.validate_session",
+        return_value=[LegacyValidationResult()],
+    ):
         result = runner.invoke(app, ["validate", "1", "--json"])
         assert result.exit_code == 0
         parsed = json.loads(result.stdout)
         assert parsed[0]["rule_name"] == "test_rule"
         assert parsed[0]["message"] == "Legacy success"
-
-
-

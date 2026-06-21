@@ -349,6 +349,7 @@ async def test_replay_engine_edge_cases(temp_db: Database) -> None:
 
     # 3. Callbacks and selective filtering
     called_back = []
+
     def callback(curr, total):
         called_back.append((curr, total))
 
@@ -392,6 +393,7 @@ async def test_replay_engine_edge_cases(temp_db: Database) -> None:
 
     # 4. Wait_for general exception during waiting for response
     original_wait_for = asyncio.wait_for
+
     async def mock_wait_for(fut, timeout=None):
         if not asyncio.iscoroutine(fut):
             raise RuntimeError("simulated wait error")
@@ -411,13 +413,16 @@ async def test_replay_engine_edge_cases(temp_db: Database) -> None:
             self.stdin = MagicMock()
             self.stdout = asyncio.StreamReader()
             self.stderr = None
+
         def terminate(self):
             raise RuntimeError("Simulated terminate failure")
+
         def kill(self):
             raise RuntimeError("Simulated kill failure")
+
         async def wait(self):
             return 0
-   
+
     proc = MockProcess()
     proc.stdout.feed_data(b'{"jsonrpc": "2.0", "id": 1, "result": "pong"}\n')
     proc.stdout.feed_eof()
@@ -449,4 +454,3 @@ async def test_replay_engine_edge_cases(temp_db: Database) -> None:
     )
     assert result_str.total_messages_replayed == 1
     assert result_str.messages[0].matches is True
-

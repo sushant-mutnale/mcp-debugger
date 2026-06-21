@@ -15,11 +15,19 @@ from mcp_debugger.replay.diff import compare_json, DiffType, DiffNode
 # ---------------------------------------------------------------------------
 
 # Strategy for valid JSON-RPC ID (int or string)
-jsonrpc_id = st.one_of(st.integers(min_value=-1000, max_value=1000), st.text(min_size=1, max_size=20))
+jsonrpc_id = st.one_of(
+    st.integers(min_value=-1000, max_value=1000), st.text(min_size=1, max_size=20)
+)
 
 # Strategy for params (dict or list or None)
 json_value = st.recursive(
-    st.one_of(st.none(), st.booleans(), st.integers(), st.floats(allow_nan=False, allow_infinity=False), st.text()),
+    st.one_of(
+        st.none(),
+        st.booleans(),
+        st.integers(),
+        st.floats(allow_nan=False, allow_infinity=False),
+        st.text(),
+    ),
     lambda children: st.one_of(st.lists(children), st.dictionaries(st.text(), children)),
     max_leaves=5,
 )
@@ -44,18 +52,18 @@ def test_request_round_trip(request_data: Dict[str, Any], params: Any) -> None:
 
     # Create request
     req = JSONRPCRequest.model_validate(full_data)
-    
+
     # Serialize to dict and back
     dumped = req.model_dump(exclude_none=True)
     assert dumped["jsonrpc"] == "2.0"
     assert dumped["id"] == full_data["id"]
     assert dumped["method"] == full_data["method"]
-    
+
     # Round-trip JSON string serialization
     json_str = req.model_dump_json(exclude_none=True)
     reparsed_dict = json.loads(json_str)
     reparsed_req = JSONRPCRequest.model_validate(reparsed_dict)
-    
+
     assert reparsed_req.id == req.id
     assert reparsed_req.method == req.method
     assert reparsed_req.params == req.params
@@ -65,7 +73,7 @@ def test_request_round_trip(request_data: Dict[str, Any], params: Any) -> None:
 def test_validator_never_raises_on_arbitrary_input(msg_data: Any) -> None:
     """ProtocolValidator.validate_message() should never crash, regardless of input shape/type."""
     validator = ProtocolValidator()
-    
+
     # Test dictionary input
     if isinstance(msg_data, dict):
         # We ensure it doesn't crash on dict input with arbitrary direction
@@ -84,13 +92,13 @@ def _swap_diff_node(node: DiffNode) -> DiffNode:
         new_type = DiffType.REMOVED
     elif node.type == DiffType.REMOVED:
         new_type = DiffType.ADDED
-        
+
     return DiffNode(
         path=node.path,
         type=new_type,
         old_value=node.new_value,
         new_value=node.old_value,
-        children=[_swap_diff_node(c) for c in node.children]
+        children=[_swap_diff_node(c) for c in node.children],
     )
 
 
@@ -99,17 +107,17 @@ def test_compare_json_symmetry_and_identity(a: Any, b: Any) -> None:
     """Verify core properties of compare_json: identity and logical symmetry."""
     # 1. Identity: compare(a, a) must be None (meaning no differences)
     assert compare_json(a, a) is None
-    
+
     # 2. Null equivalence: compare(a, b) is None iff compare(b, a) is None
     diff_ab = compare_json(a, b)
     diff_ba = compare_json(b, a)
     assert (diff_ab is None) == (diff_ba is None)
-    
+
     # 3. Structural/logical symmetry if differences exist
     if diff_ab is not None and diff_ba is not None:
         # Check that path is identical
         assert diff_ab.path == diff_ba.path
-        
+
         # Check that inverting diff_ab logically matches diff_ba
         inverted = _swap_diff_node(diff_ab)
         assert inverted.type == diff_ba.type

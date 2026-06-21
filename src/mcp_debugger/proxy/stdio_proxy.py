@@ -208,8 +208,8 @@ class StdioProxy:
                 task.cancel()
 
     # ---- Large-message size limit (bytes) ---------------------------
-    _WARN_SIZE = 1 * 1024 * 1024   # 1 MB  – warn but still store
-    _MAX_SIZE  = 10 * 1024 * 1024  # 10 MB – truncate storage
+    _WARN_SIZE = 1 * 1024 * 1024  # 1 MB  – warn but still store
+    _MAX_SIZE = 10 * 1024 * 1024  # 10 MB – truncate storage
 
     async def _handle_message(self, line: str, direction: str) -> None:
         """Safely decode, validate, and log JSON-RPC messages to the database."""
@@ -221,8 +221,7 @@ class StdioProxy:
         msg_bytes = len(stripped.encode("utf-8"))
         if msg_bytes > self._WARN_SIZE:
             print(
-                f"[mcp-debugger warning] Large message from {direction}: "
-                f"{msg_bytes / 1024:.0f} KB",
+                f"[mcp-debugger warning] Large message from {direction}: {msg_bytes / 1024:.0f} KB",
                 file=sys.stderr,
             )
         if msg_bytes > self._MAX_SIZE:

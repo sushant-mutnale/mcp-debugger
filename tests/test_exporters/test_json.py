@@ -97,7 +97,9 @@ STATS = SessionStats(
     total_messages=4,
     client_to_server_count=2,
     server_to_client_count=2,
-    top_tools=[ToolMetric(name="read_file", calls=1, avg_latency_ms=80.0, error_rate=0.0, errors_count=0)],
+    top_tools=[
+        ToolMetric(name="read_file", calls=1, avg_latency_ms=80.0, error_rate=0.0, errors_count=0)
+    ],
     errors_by_category={"protocol": 1},
     latency_min=50.0,
     latency_max=80.0,
@@ -109,7 +111,6 @@ STATS = SessionStats(
 
 
 class TestJSONExporter:
-
     def _export(self, pretty: bool = False, include_raw: bool = False) -> Dict[str, Any]:
         exporter = JSONExporter(pretty=pretty, include_raw=include_raw)
         buf = io.StringIO()

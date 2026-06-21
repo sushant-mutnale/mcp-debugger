@@ -71,7 +71,9 @@ STATS = SessionStats(
     total_messages=2,
     client_to_server_count=1,
     server_to_client_count=1,
-    top_tools=[ToolMetric(name="read_file", calls=1, avg_latency_ms=80.0, error_rate=0.0, errors_count=0)],
+    top_tools=[
+        ToolMetric(name="read_file", calls=1, avg_latency_ms=80.0, error_rate=0.0, errors_count=0)
+    ],
     errors_by_category={"protocol": 1},
     latency_min=50.0,
     latency_max=80.0,
@@ -83,7 +85,6 @@ STATS = SessionStats(
 
 
 class TestMarkdownExporter:
-
     def test_markdown_sections_and_formatting(self) -> None:
         exporter = MarkdownExporter()
         buf = io.StringIO()
@@ -92,7 +93,7 @@ class TestMarkdownExporter:
 
         # Check main header
         assert "# MCP Session Report – test session" in md
-        
+
         # Check sub headers
         assert "## Metadata" in md
         assert "## Summary" in md

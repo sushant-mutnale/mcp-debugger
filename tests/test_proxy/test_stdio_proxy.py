@@ -577,17 +577,30 @@ async def test_proxy_database_failure(temp_db: Database) -> None:
 
 
 @pytest.mark.asyncio
-async def test_proxy_large_message_and_tools_list(temp_db: Database, capsys: pytest.CaptureFixture[str]) -> None:
+async def test_proxy_large_message_and_tools_list(
+    temp_db: Database, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Verify handling of large messages (warning/truncation limits) and tools list logging."""
     import json
+
     session_id = await temp_db.create_session("mock-server")
-    
+
     # Message larger than WARN_SIZE but below MAX_SIZE (e.g. 1.5MB)
-    warn_payload = {"jsonrpc": "2.0", "id": 1, "method": "warn", "params": "x" * (1024 * 1024 + 100)}
+    warn_payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "warn",
+        "params": "x" * (1024 * 1024 + 100),
+    }
     warn_line = json.dumps(warn_payload)
-    
+
     # Message larger than MAX_SIZE (e.g. 11MB)
-    max_payload = {"jsonrpc": "2.0", "id": 2, "method": "max", "params": "y" * (10 * 1024 * 1024 + 100)}
+    max_payload = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "max",
+        "params": "y" * (10 * 1024 * 1024 + 100),
+    }
     max_line = json.dumps(max_payload)
 
     # Standard tool list response
@@ -598,7 +611,7 @@ async def test_proxy_large_message_and_tools_list(temp_db: Database, capsys: pyt
             "tools": [
                 {"name": "my_tool", "description": "some tool", "inputSchema": {"type": "object"}}
             ]
-        }
+        },
     }
     tools_line = json.dumps(tools_payload)
 
@@ -660,9 +673,12 @@ async def test_proxy_cleanup_exceptions(temp_db: Database) -> None:
 
 
 @pytest.mark.asyncio
-async def test_proxy_handle_message_database_errors(temp_db: Database, capsys: pytest.CaptureFixture[str]) -> None:
+async def test_proxy_handle_message_database_errors(
+    temp_db: Database, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Verify stdio proxy handles database failures inside message loop."""
     import json
+
     session_id = await temp_db.create_session("mock-server")
     proxy = StdioProxy(
         server_command="mock-server",
@@ -691,14 +707,15 @@ async def test_proxy_handle_message_database_errors(temp_db: Database, capsys: p
     err_payload = {
         "jsonrpc": "2.0",
         "id": 1,
-        "error": {
-            "code": -32601,
-            "message": "Method not found"
-        }
+        "error": {"code": -32601, "message": "Method not found"},
     }
     # Mock log_message to succeed, but log_error to fail
-    with patch.object(temp_db, "log_message", new_callable=unittest.mock.AsyncMock, return_value=123):
-        with patch.object(temp_db, "log_error", side_effect=RuntimeError("Log error database failure")):
+    with patch.object(
+        temp_db, "log_message", new_callable=unittest.mock.AsyncMock, return_value=123
+    ):
+        with patch.object(
+            temp_db, "log_error", side_effect=RuntimeError("Log error database failure")
+        ):
             await proxy._handle_message(json.dumps(err_payload), "server_to_client")
             captured = capsys.readouterr()
             assert "Failed to log classified error to database" in captured.err
@@ -707,13 +724,14 @@ async def test_proxy_handle_message_database_errors(temp_db: Database, capsys: p
     invalid_code_payload = {
         "jsonrpc": "2.0",
         "id": 1,
-        "error": {
-            "code": "non-integer-code",
-            "message": "Method not found"
-        }
+        "error": {"code": "non-integer-code", "message": "Method not found"},
     }
-    with patch.object(temp_db, "log_message", new_callable=unittest.mock.AsyncMock, return_value=123):
-        with patch.object(temp_db, "log_error", new_callable=unittest.mock.AsyncMock) as mock_log_error:
+    with patch.object(
+        temp_db, "log_message", new_callable=unittest.mock.AsyncMock, return_value=123
+    ):
+        with patch.object(
+            temp_db, "log_error", new_callable=unittest.mock.AsyncMock
+        ) as mock_log_error:
             await proxy._handle_message(json.dumps(invalid_code_payload), "server_to_client")
             # Should have been logged with error_code=None
             mock_log_error.assert_called_once()
@@ -754,6 +772,3 @@ async def test_proxy_stdin_exception_and_missing_process(temp_db: Database) -> N
     # Loops and monitors should return immediately
     await proxy2._server_to_client_loop()
     await proxy2._monitor_subprocess()
-
-
-

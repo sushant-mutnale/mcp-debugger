@@ -375,7 +375,9 @@ class ReplayEngine:
         failed_responses = sum(
             1 for m in replayed_messages if m.error is not None and "Timeout" not in m.error
         )
-        timed_out = sum(1 for m in replayed_messages if m.error is not None and "Timeout" in m.error)
+        timed_out = sum(
+            1 for m in replayed_messages if m.error is not None and "Timeout" in m.error
+        )
         mismatched_responses = sum(
             1 for m in replayed_messages if not m.matches and m.replayed_response is not None
         )

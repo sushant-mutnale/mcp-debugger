@@ -13,6 +13,7 @@ Usage:
   python scripts/stress_test.py --messages 5000
   python scripts/stress_test.py --quick    # 200 messages, fast CI mode
 """
+
 import asyncio
 import argparse
 import sys
@@ -45,7 +46,7 @@ async def run_stress(n_messages: int) -> None:
         # ----------------------------------------------------------------
         # 1. Batch write throughput
         # ----------------------------------------------------------------
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Batch write: {n_messages} notifications")
         db.start_flush_task()
         t0 = time.perf_counter()
@@ -66,7 +67,7 @@ async def run_stress(n_messages: int) -> None:
         # 2. Sequential write throughput (control group)
         # ----------------------------------------------------------------
         session_id2 = await db.create_session("stress-test-server", friendly_name="stress-seq")
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Sequential write: {n_messages} notifications")
         t0 = time.perf_counter()
         for i in range(n_messages):
@@ -82,7 +83,7 @@ async def run_stress(n_messages: int) -> None:
         # ----------------------------------------------------------------
         # 3. Streaming read via iter_messages()
         # ----------------------------------------------------------------
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Streaming read: iter_messages() over {n_messages} rows")
         t0 = time.perf_counter()
         count = 0
@@ -96,7 +97,7 @@ async def run_stress(n_messages: int) -> None:
         # ----------------------------------------------------------------
         # 4. Bulk read via get_messages()
         # ----------------------------------------------------------------
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Bulk read: get_messages() over {n_messages} rows")
         t0 = time.perf_counter()
         bulk = await db.get_messages(session_id)
@@ -107,15 +108,19 @@ async def run_stress(n_messages: int) -> None:
         # ----------------------------------------------------------------
         # Summary
         # ----------------------------------------------------------------
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("SUMMARY")
         print(f"  Messages:         {n_messages}")
         print(f"  Batch write:      {batch_rate:>10,.0f} msg/s  ({batch_elapsed:.3f}s)")
         print(f"  Sequential write: {seq_rate:>10,.0f} msg/s  ({seq_elapsed:.3f}s)")
-        print(f"  Streaming read:   {count / stream_elapsed:>10,.0f} msg/s  ({stream_elapsed:.3f}s)")
-        print(f"  Bulk read:        {n_messages / bulk_elapsed:>10,.0f} msg/s  ({bulk_elapsed:.3f}s)")
+        print(
+            f"  Streaming read:   {count / stream_elapsed:>10,.0f} msg/s  ({stream_elapsed:.3f}s)"
+        )
+        print(
+            f"  Bulk read:        {n_messages / bulk_elapsed:>10,.0f} msg/s  ({bulk_elapsed:.3f}s)"
+        )
         print(f"  Batch speedup:    {speedup:.1f}x")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         if batch_rate < 500:
             print("WARNING: Batch write rate below 500 msg/s -- check disk I/O.")
@@ -127,10 +132,10 @@ async def run_stress(n_messages: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="mcp-debugger database stress test")
-    parser.add_argument("--messages", type=int, default=1000,
-                        help="Number of messages to write (default: 1000)")
-    parser.add_argument("--quick", action="store_true",
-                        help="Quick mode: 200 messages (for CI)")
+    parser.add_argument(
+        "--messages", type=int, default=1000, help="Number of messages to write (default: 1000)"
+    )
+    parser.add_argument("--quick", action="store_true", help="Quick mode: 200 messages (for CI)")
     args = parser.parse_args()
 
     n = 200 if args.quick else args.messages

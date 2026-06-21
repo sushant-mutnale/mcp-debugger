@@ -93,7 +93,7 @@ class TestDumpsToml:
         }
         text = _dumps_toml(data)
         assert "[general]" in text
-        assert "default_output = \"rich\"" in text
+        assert 'default_output = "rich"' in text
         assert "color = true" in text
         assert "timeout = 5000" in text
 
@@ -144,7 +144,7 @@ class TestConfigLoad:
         assert cfg.get("replay.timeout") == 5000
 
     def test_valid_file_overrides_defaults(self, tmp_path: Path) -> None:
-        toml = '[replay]\ntimeout = 9999\n'
+        toml = "[replay]\ntimeout = 9999\n"
         cfg_file = tmp_path / "config.toml"
         cfg_file.write_text(toml, encoding="utf-8")
         cfg = Config(path=cfg_file)
@@ -336,6 +336,7 @@ class TestConfigEdgeCases:
         """Verify _config_dir behavior on non-Windows platforms."""
         from unittest.mock import patch
         from mcp_debugger.config import _config_dir
+
         with patch("sys.platform", "linux"):
             dir_path = _config_dir()
             assert ".mcp-debugger" in str(dir_path)
@@ -343,6 +344,7 @@ class TestConfigEdgeCases:
     def test_get_config_singleton(self, tmp_path: Path) -> None:
         """Verify get_config singleton behavior."""
         from mcp_debugger.config import get_config
+
         # With path parameter (returns new instance every time)
         c1 = get_config(tmp_path / "c1.toml")
         c2 = get_config(tmp_path / "c2.toml")
@@ -358,16 +360,17 @@ class TestConfigEdgeCases:
         # Non-dict top-level key should be skipped
         data = {
             "invalid_section": "not-a-dict",
-            "valid_section": {"key": [1, 2]}  # list type to hit fallback in _toml_value
+            "valid_section": {"key": [1, 2]},  # list type to hit fallback in _toml_value
         }
         text = _dumps_toml(data)
         assert "invalid_section" not in text
         assert "valid_section" in text
-        assert "key = \"[1, 2]\"" in text
+        assert 'key = "[1, 2]"' in text
 
     def test_save_chmod_oserror(self, tmp_path: Path) -> None:
         """Verify save() handles chmod OSError gracefully (e.g. Windows permissions)."""
         from unittest.mock import patch
+
         cfg = Config(path=tmp_path / "config.toml")
         with patch("os.chmod", side_effect=OSError("Operation not permitted")):
             # Save should still succeed and not raise error
@@ -381,4 +384,3 @@ class TestConfigEdgeCases:
         # Set aliases to a flat string
         cfg._data["aliases"] = "not-a-dict-string"
         assert cfg.resolve_alias("fs") is None
-

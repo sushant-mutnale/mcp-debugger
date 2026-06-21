@@ -18,6 +18,7 @@ try:
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
     _OTLP_AVAILABLE = True
 except ImportError:  # pragma: no cover
     _OTLP_AVAILABLE = False
@@ -59,8 +60,7 @@ class OTLPExporter:
     ) -> None:
         if not _OTLP_AVAILABLE:
             raise ImportError(
-                "OpenTelemetry SDK is not installed. "
-                "Run: pip install 'mcp-debugger[export]'"
+                "OpenTelemetry SDK is not installed. Run: pip install 'mcp-debugger[export]'"
             )
         self.endpoint = endpoint
         self.insecure = insecure
@@ -185,7 +185,11 @@ class OTLPExporter:
                         pass
             elif resp.get("result"):
                 try:
-                    result = json.loads(resp["result"]) if isinstance(resp["result"], str) else resp["result"]
+                    result = (
+                        json.loads(resp["result"])
+                        if isinstance(resp["result"], str)
+                        else resp["result"]
+                    )
                     if isinstance(result, dict) and result.get("isError"):
                         has_error = True
                         attrs["mcp.error"] = True

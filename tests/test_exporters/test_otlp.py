@@ -9,7 +9,6 @@ from mcp_debugger.replay.diff import DiffNode, DiffType
 
 
 class TestOTLPExporter:
-
     def test_import_error_when_sdk_missing(self) -> None:
         """OTLPExporter raises ImportError with helpful message when SDK absent."""
         original = mod_otlp._OTLP_AVAILABLE
@@ -62,9 +61,21 @@ class TestOTLPExporter:
 
         with (
             patch.object(mod_otlp, "_OTLP_AVAILABLE", True),
-            patch("mcp_debugger.exporters.otlp_exporter.TracerProvider", return_value=mock_provider, create=True),
-            patch("mcp_debugger.exporters.otlp_exporter.OTLPSpanExporter", return_value=MagicMock(), create=True),
-            patch("mcp_debugger.exporters.otlp_exporter.BatchSpanProcessor", return_value=MagicMock(), create=True),
+            patch(
+                "mcp_debugger.exporters.otlp_exporter.TracerProvider",
+                return_value=mock_provider,
+                create=True,
+            ),
+            patch(
+                "mcp_debugger.exporters.otlp_exporter.OTLPSpanExporter",
+                return_value=MagicMock(),
+                create=True,
+            ),
+            patch(
+                "mcp_debugger.exporters.otlp_exporter.BatchSpanProcessor",
+                return_value=MagicMock(),
+                create=True,
+            ),
             patch("mcp_debugger.exporters.otlp_exporter.Resource", create=True) as mock_res,
         ):
             mock_res.create.return_value = MagicMock()
@@ -81,7 +92,7 @@ class TestOTLPExporter:
         # Helper to test _get_tool_name helper directly
         assert mod_otlp._get_tool_name(None) is None
         assert mod_otlp._get_tool_name('{"not-name": 1}') is None
-        assert mod_otlp._get_tool_name('invalid-json') is None
+        assert mod_otlp._get_tool_name("invalid-json") is None
         assert mod_otlp._get_tool_name('{"name": "hello_tool"}') == "hello_tool"
 
         session = {
@@ -158,7 +169,7 @@ class TestOTLPExporter:
                 "timestamp": 1_718_020_800_400.0,
                 "message_type": "request",
                 "message_id": None,
-            }
+            },
         ]
 
         mock_provider = MagicMock()
@@ -170,9 +181,21 @@ class TestOTLPExporter:
 
         with (
             patch.object(mod_otlp, "_OTLP_AVAILABLE", True),
-            patch("mcp_debugger.exporters.otlp_exporter.TracerProvider", return_value=mock_provider, create=True),
-            patch("mcp_debugger.exporters.otlp_exporter.OTLPSpanExporter", return_value=MagicMock(), create=True),
-            patch("mcp_debugger.exporters.otlp_exporter.BatchSpanProcessor", return_value=MagicMock(), create=True),
+            patch(
+                "mcp_debugger.exporters.otlp_exporter.TracerProvider",
+                return_value=mock_provider,
+                create=True,
+            ),
+            patch(
+                "mcp_debugger.exporters.otlp_exporter.OTLPSpanExporter",
+                return_value=MagicMock(),
+                create=True,
+            ),
+            patch(
+                "mcp_debugger.exporters.otlp_exporter.BatchSpanProcessor",
+                return_value=MagicMock(),
+                create=True,
+            ),
             patch("mcp_debugger.exporters.otlp_exporter.Resource", create=True) as mock_res,
         ):
             mock_res.create.return_value = MagicMock()
@@ -191,54 +214,77 @@ class TestOTLPExporter:
 
 
 class TestOTLPReplayExporter:
-
-    def _make_result(self, matches: int, mismatches: int = 0, with_diff: bool = False) -> ReplayResult:
+    def _make_result(
+        self, matches: int, mismatches: int = 0, with_diff: bool = False
+    ) -> ReplayResult:
         session_id = 42
         msgs = []
         for i in range(matches):
-            msgs.append(ReplayedMessage(
-                original_message_id=100 + i,
-                method="ping",
-                request_sent={"id": 100 + i, "method": "ping"},
-                original_response={"id": 100 + i, "result": "pong"},
-                replayed_response={"id": 100 + i, "result": "pong"},
-                latency_ms=45.2,
-                matches=True,
-            ))
+            msgs.append(
+                ReplayedMessage(
+                    original_message_id=100 + i,
+                    method="ping",
+                    request_sent={"id": 100 + i, "method": "ping"},
+                    original_response={"id": 100 + i, "result": "pong"},
+                    replayed_response={"id": 100 + i, "result": "pong"},
+                    latency_ms=45.2,
+                    matches=True,
+                )
+            )
 
         for j in range(mismatches):
             diff_nodes = []
             if with_diff:
-                diff_nodes.append(DiffNode(
-                    path="result",
-                    type=DiffType.CHANGED,
-                    old_value="old",
-                    new_value="new",
-                    children=[]
-                ))
+                diff_nodes.append(
+                    DiffNode(
+                        path="result",
+                        type=DiffType.CHANGED,
+                        old_value="old",
+                        new_value="new",
+                        children=[],
+                    )
+                )
 
-            msgs.append(ReplayedMessage(
-                original_message_id=200 + j,
-                method="tools/call",
-                request_sent={"id": 200 + j, "method": "tools/call", "params": {"name": "read_file"}},
-                original_response={"id": 200 + j, "result": {"content": [{"type": "text", "text": "old"}]}},
-                replayed_response={"id": 200 + j, "result": {"content": [{"type": "text", "text": "new"}]}},
-                latency_ms=99.9,
-                matches=False,
-                diff=diff_nodes if with_diff else None,
-                diff_text="result.tools[0].name: old → new" if with_diff else None,
-            ))
+            msgs.append(
+                ReplayedMessage(
+                    original_message_id=200 + j,
+                    method="tools/call",
+                    request_sent={
+                        "id": 200 + j,
+                        "method": "tools/call",
+                        "params": {"name": "read_file"},
+                    },
+                    original_response={
+                        "id": 200 + j,
+                        "result": {"content": [{"type": "text", "text": "old"}]},
+                    },
+                    replayed_response={
+                        "id": 200 + j,
+                        "result": {"content": [{"type": "text", "text": "new"}]},
+                    },
+                    latency_ms=99.9,
+                    matches=False,
+                    diff=diff_nodes if with_diff else None,
+                    diff_text="result.tools[0].name: old → new" if with_diff else None,
+                )
+            )
             # Additional message to cover string/serialized params and error scenarios
-            msgs.append(ReplayedMessage(
-                original_message_id=300 + j,
-                method="tools/call",
-                request_sent={"id": 300 + j, "method": "tools/call", "params": '{"name": "string_param_tool"}'},
-                original_response={"id": 300 + j, "result": "old"},
-                replayed_response=None,
-                latency_ms=0.0,
-                matches=False,
-                error="Timeout error occurred",
-            ))
+            msgs.append(
+                ReplayedMessage(
+                    original_message_id=300 + j,
+                    method="tools/call",
+                    request_sent={
+                        "id": 300 + j,
+                        "method": "tools/call",
+                        "params": '{"name": "string_param_tool"}',
+                    },
+                    original_response={"id": 300 + j, "result": "old"},
+                    replayed_response=None,
+                    latency_ms=0.0,
+                    matches=False,
+                    error="Timeout error occurred",
+                )
+            )
 
         return ReplayResult(
             replay_id=7,

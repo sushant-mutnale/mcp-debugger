@@ -71,6 +71,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 # Config file location
 # ---------------------------------------------------------------------------
 
+
 def _config_dir() -> Path:
     """Return the platform-appropriate config directory."""
     if sys.platform == "win32":
@@ -88,10 +89,12 @@ def default_config_path() -> Path:
 # TOML helpers
 # ---------------------------------------------------------------------------
 
+
 def _loads_toml(text: str) -> Dict[str, Any]:
     """Parse TOML text using the stdlib tomllib (Python 3.11+)."""
     if sys.version_info >= (3, 11):
         import tomllib  # pragma: no cover
+
         return tomllib.loads(text)
     else:  # pragma: no cover
         try:
@@ -158,6 +161,7 @@ def _toml_value(v: Any) -> str:
 # Config class
 # ---------------------------------------------------------------------------
 
+
 class Config:
     """Read/write the mcp-debugger configuration file.
 
@@ -183,6 +187,7 @@ class Config:
         Idempotent – safe to call multiple times.
         """
         import copy
+
         self._data = copy.deepcopy(DEFAULT_CONFIG)
 
         if not self.path.exists():
@@ -195,9 +200,7 @@ class Config:
             # Deep-merge parsed on top of defaults so missing keys still have values
             _deep_merge(self._data, parsed)
         except Exception as exc:
-            logger.warning(
-                "Config file %s is invalid (%s). Using defaults.", self.path, exc
-            )
+            logger.warning("Config file %s is invalid (%s). Using defaults.", self.path, exc)
 
         self._loaded = True
 
@@ -284,11 +287,13 @@ class Config:
         if not self._loaded:
             self.load()
         import copy
+
         return copy.deepcopy(self._data)
 
     def reset(self) -> None:
         """Reset the config to defaults and persist."""
         import copy
+
         self._data = copy.deepcopy(DEFAULT_CONFIG)
         self._loaded = True
         self.save()
@@ -314,6 +319,7 @@ class Config:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> None:
     """Recursively merge *override* into *base* in-place."""
