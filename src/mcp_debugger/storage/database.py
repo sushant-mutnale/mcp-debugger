@@ -1,5 +1,6 @@
 """Asynchronous SQLite storage layer for the MCP Debugger."""
 
+import asyncio
 import json
 import logging
 import os
@@ -7,7 +8,7 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 import aiosqlite
 
 logger = logging.getLogger("mcp_debugger.storage")
@@ -35,6 +36,13 @@ class Database:
 
         self._conn: Optional[aiosqlite.Connection] = None
 
+        # Batch-write buffer: rows waiting to be INSERTed into messages
+        self._write_queue: asyncio.Queue[Optional[Tuple[Any, ...]]] = asyncio.Queue()
+        self._flush_task: Optional[asyncio.Task[None]] = None
+        # Flush when buffer reaches this size OR after this many seconds
+        self._flush_batch_size: int = 100
+        self._flush_interval: float = 0.5
+
     async def connect(self) -> None:
         """Establish database connection, adjust permissions, configure WAL, and create schemas."""
         db_file = Path(self.db_path)
@@ -58,10 +66,104 @@ class Database:
         await self._create_tables()
 
     async def close(self) -> None:
-        """Close connection cleanly."""
+        """Flush pending writes, stop background task, then close connection cleanly."""
+        await self.stop_flush_task()
         if self._conn:
             await self._conn.close()
             self._conn = None
+
+    # ------------------------------------------------------------------
+    # Batch-write machinery
+    # ------------------------------------------------------------------
+
+    def start_flush_task(self) -> None:
+        """Launch background coroutine that drains the write queue periodically.
+
+        Call this once after connect() when you expect high-throughput writes
+        (e.g. from the proxy). Safe to call multiple times – a second call is
+        a no-op if the task is already running.
+        """
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = asyncio.create_task(self._flush_loop())
+
+    async def stop_flush_task(self) -> None:
+        """Signal the flush loop to finish, drain remaining items, and await completion."""
+        if self._flush_task and not self._flush_task.done():
+            # Sentinel: None tells the loop to exit after draining
+            await self._write_queue.put(None)
+            try:
+                await asyncio.wait_for(self._flush_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                self._flush_task.cancel()
+        self._flush_task = None
+        # Drain any remaining items synchronously
+        await self._drain_queue()
+
+    async def flush(self) -> None:
+        """Immediately drain all queued writes to disk. Call before close()."""
+        await self._drain_queue()
+
+    async def _flush_loop(self) -> None:
+        """Background loop: flush every _flush_interval seconds or every _flush_batch_size rows."""
+        batch: List[Tuple[Any, ...]] = []
+        while True:
+            try:
+                item = await asyncio.wait_for(
+                    self._write_queue.get(), timeout=self._flush_interval
+                )
+                if item is None:  # sentinel – exit after draining
+                    if batch:
+                        await self._commit_batch(batch)
+                    break
+                batch.append(item)
+                if len(batch) >= self._flush_batch_size:
+                    await self._commit_batch(batch)
+                    batch = []
+            except asyncio.TimeoutError:
+                if batch:
+                    await self._commit_batch(batch)
+                    batch = []
+
+    async def _drain_queue(self) -> None:
+        """Drain all currently queued rows in one batch commit (blocking)."""
+        batch: List[Tuple[Any, ...]] = []
+        while not self._write_queue.empty():
+            item = self._write_queue.get_nowait()
+            if item is None:
+                break
+            batch.append(item)
+        if batch:
+            await self._commit_batch(batch)
+
+    async def _commit_batch(self, batch: List[Tuple[Any, ...]]) -> None:
+        """Write a list of message rows with a single executemany + commit."""
+        if not batch:
+            return
+        try:
+            conn = await self._get_conn()
+            await conn.executemany(
+                """
+                INSERT INTO messages (
+                    session_id, message_id, direction, method, params, result, error,
+                    timestamp, latency_ms, message_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                batch,
+            )
+            # Update session total_messages in bulk
+            # Group by session_id to avoid N UPDATE calls
+            counts: Dict[int, int] = {}
+            for row in batch:
+                sid = int(row[0])
+                counts[sid] = counts.get(sid, 0) + 1
+            for sid, cnt in counts.items():
+                await conn.execute(
+                    "UPDATE sessions SET total_messages = total_messages + ? WHERE id = ?",
+                    (cnt, sid),
+                )
+            await conn.commit()
+        except Exception as e:
+            logger.warning("Batch commit failed (%d rows): %s", len(batch), e)
 
     async def _get_conn(self) -> aiosqlite.Connection:
         """Return the active connection, connecting if not already established."""
@@ -217,14 +319,27 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_replay_messages_replay_id ON replay_messages(replay_id);"
         )
 
-        # Indexes
+        # ---- Indexes --------------------------------------------------------
+        # Composite indexes that cover the hot query patterns:
+        #   get_messages: WHERE session_id=? ORDER BY timestamp ASC
+        #   get_replay_messages: WHERE session_id=? AND direction=? ORDER BY timestamp ASC
+        #   get_messages(method=?): WHERE session_id=? AND method=?
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_session_ts "
+            "ON messages(session_id, timestamp);"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_session_method "
+            "ON messages(session_id, method);"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_session_direction "
+            "ON messages(session_id, direction, timestamp);"
+        )
+        # Keep legacy single-column indexes for backwards compat with older DBs
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);"
         )
-        await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);"
-        )
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_method ON messages(method);")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_tools_session_id ON tools(session_id);")
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_errors_session_id ON errors(session_id);"
@@ -263,14 +378,19 @@ class Database:
         direction: str,
         message: Union[Dict[str, Any], Any],
     ) -> int:
-        """Log a validated Pydantic model or raw dict JSON-RPC message into storage."""
+        """Log a JSON-RPC message.
+
+        If the flush task is running (high-throughput proxy mode) the row is
+        placed on the write queue and -1 is returned (no inserted ID yet).
+        If the flush task is NOT running the write is committed immediately so
+        that callers that need the inserted ID (e.g. tests, replay engine) still
+        work correctly.
+        """
         try:
             if hasattr(message, "model_dump"):
                 msg_dict = message.model_dump()
             else:
                 msg_dict = dict(message)
-
-            conn = await self._get_conn()
 
             msg_id = msg_dict.get("id")
             msg_id_str = str(msg_id) if msg_id is not None else None
@@ -302,10 +422,11 @@ class Database:
                 message_type = "notification"
 
             timestamp = time.time() * 1000.0
-            latency_ms = None
+            latency_ms: Optional[float] = None
 
-            # Calculate response latency and match methods
+            # Calculate response latency – needs a DB read so always synchronous.
             if message_type == "response" and msg_id_str is not None:
+                conn = await self._get_conn()
                 async with conn.execute(
                     """
                     SELECT timestamp, method FROM messages
@@ -320,7 +441,34 @@ class Database:
                         method = row[1]
                         latency_ms = timestamp - req_timestamp
 
-            # Insert message
+            row_tuple: Tuple[Any, ...] = (
+                session_id,
+                msg_id_str,
+                direction,
+                method,
+                params,
+                result,
+                error,
+                timestamp,
+                latency_ms,
+                message_type,
+            )
+
+            # Batch path: only queue *notifications* — they are the high-volume
+            # messages and have no ordering dependencies with other messages.
+            # Requests must be committed synchronously so the matching response
+            # can find them via SELECT. Responses must also be synchronous
+            # because they need latency data from the request row.
+            if (
+                message_type == "notification"
+                and self._flush_task is not None
+                and not self._flush_task.done()
+            ):
+                self._write_queue.put_nowait(row_tuple)
+                return -1
+
+            # Synchronous path: direct INSERT + commit (requests, responses, fallback)
+            conn = await self._get_conn()
             async with conn.execute(
                 """
                 INSERT INTO messages (
@@ -328,32 +476,20 @@ class Database:
                     timestamp, latency_ms, message_type
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    session_id,
-                    msg_id_str,
-                    direction,
-                    method,
-                    params,
-                    result,
-                    error,
-                    timestamp,
-                    latency_ms,
-                    message_type,
-                ),
+                row_tuple,
             ) as cursor:
                 inserted_id = cursor.lastrowid
 
-            # Increment count
             await conn.execute(
                 "UPDATE sessions SET total_messages = total_messages + 1 WHERE id = ?",
                 (session_id,),
             )
             await conn.commit()
-
             return inserted_id if inserted_id is not None else -1
         except Exception as e:
             logger.warning("Failed to log message: %s", e)
             return -1
+
 
     async def log_tool(self, session_id: int, tool: Union[Dict[str, Any], Any]) -> None:
         """Log a tool definition discovered in tools/list response."""
@@ -510,7 +646,7 @@ class Database:
                 search_pat = f"%{search}%"
                 params.extend([search_pat, search_pat, search_pat])
 
-            query += " ORDER BY timestamp ASC"
+            query += " ORDER BY timestamp ASC, id ASC"
 
             if limit is not None:
                 query += " LIMIT ?"
@@ -529,6 +665,45 @@ class Database:
         except Exception as e:
             logger.warning("Failed to get messages: %s", e)
             return []
+
+    async def iter_messages(
+        self,
+        session_id: int,
+        method: Optional[str] = None,
+        direction: Optional[str] = None,
+        chunk_size: int = 200,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Stream messages one-by-one from a DB cursor to avoid loading all into RAM.
+
+        Usage::
+
+            async for msg in db.iter_messages(session_id):
+                process(msg)
+
+        ``chunk_size`` controls how many rows are fetched from SQLite per round-trip.
+        """
+        try:
+            conn = await self._get_conn()
+            query = "SELECT * FROM messages WHERE session_id = ?"
+            params: List[Any] = [session_id]
+            if method is not None:
+                query += " AND method = ?"
+                params.append(method)
+            if direction is not None:
+                query += " AND direction = ?"
+                params.append(direction)
+            query += " ORDER BY timestamp ASC, id ASC"
+
+            async with conn.execute(query, params) as cursor:
+                while True:
+                    rows = await cursor.fetchmany(chunk_size)
+                    if not rows:
+                        break
+                    for row in rows:
+                        yield dict(row)
+        except Exception as e:
+            logger.warning("Failed to iter messages: %s", e)
+            return
 
     async def get_tools(self, session_id: int) -> List[Dict[str, Any]]:
         """Retrieve all unique tools discovered in a session."""

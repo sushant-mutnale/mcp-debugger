@@ -329,3 +329,56 @@ class TestConfigFilePermissions:
         cfg.reset()
         mode = os.stat(cfg.path).st_mode & 0o777
         assert mode == 0o600
+
+
+class TestConfigEdgeCases:
+    def test_config_dir_linux(self) -> None:
+        """Verify _config_dir behavior on non-Windows platforms."""
+        from unittest.mock import patch
+        from mcp_debugger.config import _config_dir
+        with patch("sys.platform", "linux"):
+            dir_path = _config_dir()
+            assert ".mcp-debugger" in str(dir_path)
+
+    def test_get_config_singleton(self, tmp_path: Path) -> None:
+        """Verify get_config singleton behavior."""
+        from mcp_debugger.config import get_config
+        # With path parameter (returns new instance every time)
+        c1 = get_config(tmp_path / "c1.toml")
+        c2 = get_config(tmp_path / "c2.toml")
+        assert c1 is not c2
+
+        # Without path parameter (returns process-wide singleton)
+        s1 = get_config()
+        s2 = get_config()
+        assert s1 is s2
+
+    def test_dumps_toml_edge_cases(self) -> None:
+        """Verify _dumps_toml handles non-dict values and strange types."""
+        # Non-dict top-level key should be skipped
+        data = {
+            "invalid_section": "not-a-dict",
+            "valid_section": {"key": [1, 2]}  # list type to hit fallback in _toml_value
+        }
+        text = _dumps_toml(data)
+        assert "invalid_section" not in text
+        assert "valid_section" in text
+        assert "key = \"[1, 2]\"" in text
+
+    def test_save_chmod_oserror(self, tmp_path: Path) -> None:
+        """Verify save() handles chmod OSError gracefully (e.g. Windows permissions)."""
+        from unittest.mock import patch
+        cfg = Config(path=tmp_path / "config.toml")
+        with patch("os.chmod", side_effect=OSError("Operation not permitted")):
+            # Save should still succeed and not raise error
+            cfg.save()
+            assert cfg.path.exists()
+
+    def test_resolve_alias_non_dict(self, tmp_path: Path) -> None:
+        """Verify resolve_alias returns None if aliases is not a dict."""
+        cfg = make_config(tmp_path)
+        cfg.load()
+        # Set aliases to a flat string
+        cfg._data["aliases"] = "not-a-dict-string"
+        assert cfg.resolve_alias("fs") is None
+

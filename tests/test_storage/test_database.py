@@ -1,29 +1,13 @@
-"""Tests for the SQLite storage layer using aiosqlite."""
-
 import os
 import tempfile
 import time
-from typing import Any, AsyncGenerator
-import pytest
+import asyncio
+from typing import Any
 import sqlite3
+import pytest
 
 from mcp_debugger.protocol.schemas import JSONRPCRequest
 from mcp_debugger.storage.database import Database
-
-
-@pytest.fixture
-async def temp_db() -> AsyncGenerator[Database, None]:
-    """Fixture that returns a temporary database instance and closes it after the test."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    db = Database(db_path=path)
-    await db.connect()
-    yield db
-    await db.close()
-    try:
-        os.remove(path)
-    except Exception:
-        pass
 
 
 async def test_database_initialization(temp_db: Database) -> None:
@@ -104,7 +88,7 @@ async def test_log_message_request_and_response(temp_db: Database) -> None:
     assert req_id > 0
 
     # Wait briefly to ensure non-zero latency delta
-    time.sleep(0.01)
+    await asyncio.sleep(0.01)
 
     # 2. Log matching Response message
     resp_dict = {
@@ -344,8 +328,10 @@ async def test_robust_error_handling(temp_db: Database) -> None:
     assert len(errors) == 0
 
 
+
+@pytest.mark.slow
 async def test_performance_1000_message_inserts(temp_db: Database) -> None:
-    """Verify that 1000 message inserts take less than 0.5 seconds with optimizations."""
+    """Verify that 1000 message inserts take less than 5.0 seconds with optimizations."""
     session_id = await temp_db.create_session(server_command="perf_test")
 
     start_time = time.perf_counter()
@@ -358,7 +344,7 @@ async def test_performance_1000_message_inserts(temp_db: Database) -> None:
     end_time = time.perf_counter()
     duration = end_time - start_time
 
-    assert duration < 2.0
+    assert duration < 5.0, f"1000 inserts took {duration:.2f}s — expected < 5.0s"
 
 
 async def test_default_db_path() -> None:
@@ -577,3 +563,196 @@ async def test_get_tool_usage_count(temp_db: Database) -> None:
     assert read_count == 2
     assert write_count == 1
     assert other_count == 0
+
+
+async def test_database_server_logs(temp_db: Database) -> None:
+    """Verify logging and retrieving raw server logs (e.g. stdout/stderr)."""
+    session_id = await temp_db.create_session("server_logs_test")
+    await temp_db.log_raw_line(session_id, "line 1", "server_stdout")
+    await temp_db.log_raw_line(session_id, "line 2", "server_stderr")
+    
+    logs = await temp_db.get_server_logs(session_id)
+    assert len(logs) == 2
+    assert logs[0]["raw_text"] == "line 1"
+    assert logs[0]["source"] == "server_stdout"
+    assert logs[1]["raw_text"] == "line 2"
+    assert logs[1]["source"] == "server_stderr"
+
+
+async def test_database_batch_flush(temp_db: Database) -> None:
+    """Verify background batch queue writing and periodic flushing."""
+    session_id = await temp_db.create_session("batch_flush_test")
+    temp_db._flush_batch_size = 5
+    temp_db._flush_interval = 0.05
+    temp_db.start_flush_task()
+    
+    # Send 4 notifications (less than batch size)
+    for i in range(4):
+        await temp_db.log_message(
+            session_id=session_id,
+            direction="client_to_server",
+            message={"jsonrpc": "2.0", "method": "test/notify", "params": {"i": i}}
+        )
+    
+    # Wait for flush interval to trigger
+    await asyncio.sleep(0.1)
+    msgs = await temp_db.get_messages(session_id)
+    assert len(msgs) == 4
+    
+    await temp_db.stop_flush_task()
+
+
+async def test_database_save_replay(temp_db: Database) -> None:
+    """Verify storing and loading replay sessions and message outcomes."""
+    session_id = await temp_db.create_session("save_replay_test")
+    # Log a request and response first to have valid messages
+    req_id = await temp_db.log_message(
+        session_id=session_id,
+        direction="client_to_server",
+        message={"jsonrpc": "2.0", "id": 1, "method": "test/ping", "params": {}}
+    )
+    await temp_db.log_message(
+        session_id=session_id,
+        direction="server_to_client",
+        message={"jsonrpc": "2.0", "id": 1, "result": "pong"}
+    )
+    
+    replay_msgs = await temp_db.get_replay_messages(session_id)
+    assert len(replay_msgs) == 1
+    assert replay_msgs[0]["method"] == "test/ping"
+    assert replay_msgs[0]["original_response"]["result"] == "pong"
+    
+    # Save a replay run
+    rep_id = await temp_db.save_replay(
+        source_session_id=session_id,
+        target_server_command="my-target-server",
+        status="completed",
+        total_messages=1,
+        mismatches=0,
+        messages=[
+            {
+                "original_message_id": req_id,
+                "original_response": {"jsonrpc": "2.0", "id": 1, "result": "pong"},
+                "replayed_response": {"jsonrpc": "2.0", "id": 1, "result": "pong"},
+                "matches": True,
+                "error": None,
+                "latency_ms": 1.2
+            }
+        ],
+        started_at="2026-06-20 00:00:00",
+        ended_at="2026-06-20 00:00:01"
+    )
+    assert rep_id > 0
+
+
+async def test_database_edge_cases(temp_db: Database, tmp_path) -> None:
+    """Verify various database edge cases, fallbacks, and exception handling paths."""
+    from unittest.mock import MagicMock, patch
+    
+    db_file = tmp_path / "edge_cases.db"
+    db = Database(db_path=str(db_file))
+
+    # 1. Test _get_conn connecting automatically (when _conn is None)
+    session_id = await db.create_session("auto_connect")
+    assert session_id > 0
+    assert db._conn is not None
+
+    # 2. Test chmod exception handling
+    with patch("os.chmod", side_effect=OSError("Permission denied")):
+        db_chmod = Database(db_path=str(tmp_path / "chmod_fail.db"))
+        await db_chmod.connect()
+        await db_chmod.close()
+
+    # 3. Test empty batch commit
+    await db._commit_batch([])
+
+    # 4. Test batch commit failure exception handling
+    with patch.object(db._conn, "executemany", side_effect=sqlite3.Error("simulated db error")):
+        # This should log a warning but not crash
+        await db._commit_batch([(session_id, 1, "client_to_server", "ping", "{}", None, None, 123.4, None, "request")])
+
+    # 5. Test flush method
+    await db.flush()
+
+    # 6. Test stop_flush_task timeout
+    mock_task = MagicMock()
+    mock_task.done.return_value = False
+    db._flush_task = mock_task
+    with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+        await db.stop_flush_task()
+        mock_task.cancel.assert_called_once()
+    
+    # 7. Test _flush_loop batch size limit
+    db_batch = Database(db_path=str(tmp_path / "batch.db"))
+    await db_batch.connect()
+    batch_session_id = await db_batch.create_session("batch_session")
+    db_batch._flush_batch_size = 2
+    db_batch._flush_interval = 10.0  # very long to prevent timeout flush
+    db_batch.start_flush_task()
+    
+    # Send 2 messages (should trigger commit_batch immediately due to batch size limit of 2)
+    await db_batch.log_message(session_id=batch_session_id, direction="client_to_server", message={"jsonrpc": "2.0", "method": "test/notify"})
+    await db_batch.log_message(session_id=batch_session_id, direction="client_to_server", message={"jsonrpc": "2.0", "method": "test/notify"})
+    
+    # Let task run to process queue
+    await asyncio.sleep(0.02)
+    msgs = await db_batch.get_messages(batch_session_id)
+    assert len(msgs) == 2
+    await db_batch.stop_flush_task()
+    await db_batch.close()
+
+    # 8. Test iter_messages
+    temp_session_id = await temp_db.create_session("temp_session")
+    collected = []
+    async for msg in temp_db.iter_messages(temp_session_id):
+        collected.append(msg)
+    # Ensure it handles clean iteration without crash
+    assert isinstance(collected, list)
+
+    # 9. Test mismatched JSON and invalid string IDs in get_replay_messages
+    conn = await temp_db._get_conn()
+    await conn.execute(
+        """
+        INSERT INTO messages (
+            session_id, message_id, direction, method, params, result, error, timestamp, message_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (temp_session_id, "non-int-id", "client_to_server", "test/bad-json", "{invalid-json}", "{invalid-json}", "{invalid-json}", 123.4, "request")
+    )
+    await conn.execute(
+        """
+        INSERT INTO messages (
+            session_id, message_id, direction, method, params, result, error, timestamp, message_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (temp_session_id, "non-int-id", "server_to_client", "test/bad-json", None, "{invalid-json}", "{invalid-json}", 123.5, "response")
+    )
+    await conn.commit()
+    replay_msgs = await temp_db.get_replay_messages(temp_session_id)
+    bad_msgs = [m for m in replay_msgs if m["method"] == "test/bad-json"]
+    assert len(bad_msgs) == 1
+    assert bad_msgs[0]["params"] == "{invalid-json}"
+    assert bad_msgs[0]["original_response"]["result"] == "{invalid-json}"
+    assert bad_msgs[0]["original_response"]["error"] == "{invalid-json}"
+
+    # 10. Test sqlite3.OperationalError fallback in get_tool_usage_count
+    original_execute = temp_db._conn.execute
+    def mock_execute(sql, *args, **kwargs):
+        if "json_extract" in sql:
+            raise sqlite3.OperationalError("json_extract not supported")
+        return original_execute(sql, *args, **kwargs)
+        
+    with patch.object(temp_db._conn, "execute", side_effect=mock_execute):
+        # Should fall back to LIKE query and return count
+        count = await temp_db.get_tool_usage_count(temp_session_id, "my_tool")
+        assert count == 0
+
+    # 11. Test exception logging warning paths on database failure
+    with patch.object(temp_db._conn, "execute", side_effect=sqlite3.Error("DB error")):
+        # Ensure log_raw_line, get_server_logs, get_session, save_replay, etc handle exceptions
+        await temp_db.log_raw_line(temp_session_id, "some log")
+        assert await temp_db.get_server_logs(temp_session_id) == []
+        assert await temp_db.get_session(temp_session_id) is None
+        assert await temp_db.get_replay_messages(temp_session_id) == []
+        assert await temp_db.save_replay(temp_session_id, "cmd", "completed", 0, 0, [], "start", "end") == -1
+

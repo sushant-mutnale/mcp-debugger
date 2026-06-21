@@ -20,7 +20,10 @@ class ErrorClassifier:
             if data is not None:
                 raw_msg = f"{raw_msg}: {data}"
 
-            error_code = int(code) if code is not None else None
+            try:
+                error_code = int(code) if code is not None else None
+            except ValueError:
+                error_code = None
             msg_lower = raw_msg.lower()
 
             # Heuristics for timeout and connection errors

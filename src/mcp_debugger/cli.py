@@ -86,9 +86,8 @@ def config_get(
     key: str = typer.Argument(..., help="Config key in dot-notation, e.g. replay.timeout"),
 ) -> None:
     """Show the value of a config key."""
-    from mcp_debugger.config import Config, default_config_path
-    cfg = Config(path=default_config_path())
-    cfg.load()
+    from mcp_debugger.config import get_config
+    cfg = get_config()
     value = cfg.get(key)
     if value is None:
         console.print(f"[yellow]Key '{key}' not found.[/yellow]")
@@ -102,10 +101,11 @@ def config_set(
     value: str = typer.Argument(..., help="Value to store (auto-converted to int/bool/float if possible)"),
 ) -> None:
     """Set a config value and save to disk."""
-    from mcp_debugger.config import Config, default_config_path
-    cfg = Config(path=default_config_path())
-    cfg.load()
+    import mcp_debugger.config as _cfg_mod
+    cfg = _cfg_mod.get_config()
     cfg.set(key, value)
+    # Invalidate singleton so next read reflects the new value
+    _cfg_mod._GLOBAL_CONFIG = None
     new_val = cfg.get(key)
     console.print(f"[green]✓[/green] {key} = {new_val!r}")
 
@@ -115,10 +115,10 @@ def config_unset(
     key: str = typer.Argument(..., help="Config key to remove (reverts to default)"),
 ) -> None:
     """Remove a config key (reverts to the hardcoded default)."""
-    from mcp_debugger.config import Config, default_config_path
-    cfg = Config(path=default_config_path())
-    cfg.load()
+    import mcp_debugger.config as _cfg_mod
+    cfg = _cfg_mod.get_config()
     removed = cfg.unset(key)
+    _cfg_mod._GLOBAL_CONFIG = None  # invalidate
     if removed:
         console.print(f"[green]✓[/green] '{key}' removed from config.")
     else:
@@ -128,9 +128,8 @@ def config_unset(
 @config_app.command(name="list")
 def config_list() -> None:
     """Show all config values in a formatted table."""
-    from mcp_debugger.config import Config, default_config_path
-    cfg = Config(path=default_config_path())
-    cfg.load()
+    from mcp_debugger.config import get_config, default_config_path
+    cfg = get_config()
     data = cfg.all()
 
     table = Table(title="mcp-debugger configuration", show_header=True, header_style="bold cyan")
@@ -165,14 +164,15 @@ def config_reset(
     force: bool = typer.Option(False, "--force", help="Reset without prompting"),
 ) -> None:
     """Reset config to factory defaults."""
-    from mcp_debugger.config import Config, default_config_path
+    import mcp_debugger.config as _cfg_mod
     if not force:
         confirm = typer.confirm("Reset config to defaults? This will overwrite your current config.", default=False)
         if not confirm:
             console.print("[yellow]Aborted.[/yellow]")
             raise typer.Exit(0)
-    cfg = Config(path=default_config_path())
+    cfg = _cfg_mod.Config()
     cfg.reset()
+    _cfg_mod._GLOBAL_CONFIG = None  # invalidate singleton
     console.print("[green]✓ Config reset to defaults.[/green]")
 
 
@@ -709,7 +709,6 @@ def list_errors(
 def doctor() -> None:
     """Run diagnostic checks on the environment and database setup."""
     import shutil
-    import sqlite3
     import os
 
     lines = []
@@ -729,6 +728,7 @@ def doctor() -> None:
 
     # 2. SQLite check
     try:
+        import sqlite3
         sqlite_ver = sqlite3.sqlite_version
         ver_parts = [int(x) for x in sqlite_ver.split(".")]
         if ver_parts >= [3, 35, 0]:
@@ -1634,9 +1634,8 @@ def export(
     """Export session data as JSON, Markdown, or OpenTelemetry (OTLP) traces."""
 
     # Config fallbacks: export.default_format and export.pretty_json
-    from mcp_debugger.config import Config, default_config_path
-    _cfg = Config(path=default_config_path())
-    _cfg.load()
+    from mcp_debugger.config import get_config
+    _cfg = get_config()
     # Only apply config default when the user didn't explicitly pass --format
     # (typer default is "json" so we can't distinguish; treat "json" as config-eligible)
     effective_format = format if format != "json" else str(_cfg.get("export.default_format", "json"))
@@ -1778,9 +1777,8 @@ def replay(
     # ------------------------------------------------------------------
     # Config fallbacks (CLI flags override, then config, then hardcoded defaults)
     # ------------------------------------------------------------------
-    from mcp_debugger.config import Config, default_config_path
-    _cfg = Config(path=default_config_path())
-    _cfg.load()
+    from mcp_debugger.config import get_config
+    _cfg = get_config()
 
     # Resolve server: --server > --alias > config.replay.default_server
     effective_server = server

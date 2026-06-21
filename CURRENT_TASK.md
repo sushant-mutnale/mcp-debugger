@@ -1,224 +1,194 @@
-Day 20: Configuration Management – Making the Tool Your Own
-You have a feature‑rich tool now: recording, inspection, validation, error classification, statistics, export, replay with diff, and OTLP export. But users are typing long commands with many flags every time. They want defaults: “I always use --timeout 10000”, “I want OTLP export enabled by default”, “I have a preferred server command I use for replay”.
+Day 22: Comprehensive Test Suite – Ensuring Rock‑Solid Reliability
+You’ve built all the features and hardened performance (Day 21). Now you need confidence that every change won’t break existing functionality. A comprehensive test suite is the safety net that allows you to refactor, add features, and fix bugs without fear.
 
-Day 20 adds a central configuration system – a user‑editable config.toml file that stores defaults for all commands, server aliases, and user preferences. This makes mcp-debugger feel polished and professional.
+By the end of Day 22, mcp-debugger will have:
 
-By the end of Day 20, users can:
+Unit tests for every module (target >90% coverage).
 
-bash
-mcp-debugger config init                  # create default config
-mcp-debugger config set replay.timeout 10000
-mcp-debugger config set replay.default_server "npx -y @modelcontextprotocol/server-filesystem /tmp"
-mcp-debugger config set alias.fs "npx -y @modelcontextprotocol/server-filesystem /tmp"
-mcp-debugger config set alias.gh "npx -y @modelcontextprotocol/server-github"
+Integration tests for end‑to‑end workflows (proxy → DB → inspect → replay → export).
 
-mcp-debugger replay 42 --alias fs         # uses the alias
-mcp-debugger replay 42                    # uses replay.default_server if set
+Property‑based tests using hypothesis to catch edge cases in message parsing and validation.
+
+Stress tests that push the tool to its limits (10k messages, large payloads, concurrent sessions).
+
+Coverage reporting in CI to prevent regression.
+
+This transforms your codebase from “works for me” to “works for everyone”.
+
 🎯 Core Objective
-Build a configuration management system with:
+Build a comprehensive test suite across four layers:
 
-Component	Description
-Config file	~/.mcp-debugger/config.toml – TOML format, human‑editable.
-Config commands	mcp-debugger config init, config get, config set, config list, config reset.
-Default values	Sensible defaults for all flags (timeout, OTLP endpoint, etc.).
-Aliases	Short names for server commands (e.g., fs → npx -y .../server-filesystem /tmp).
-Integration	All CLI commands read config values as fallbacks if flags are not provided.
-Precedence	CLI flags > Config file > Hardcoded defaults.
-Doctor integration	mcp-debugger doctor now checks config file validity.
+Layer Purpose Tools
+Unit tests Test individual functions/classes in isolation pytest, pytest-asyncio, mocking (unittest.mock or pytest-mock)
+Integration tests Test end‑to‑end workflows with real (or mocked) servers pytest-asyncio, temporary DBs, real MCP servers (filesystem)
+Property‑based tests Verify invariants (e.g., any valid MCP message round‑trips through models) hypothesis, hypothesis-jsonschema (for generating valid JSON‑RPC)
+Stress tests Test performance and memory under load pytest-benchmark, memory-profiler, custom scripts
 Deliverables by end of day:
 
-src/mcp_debugger/config.py – Config class with load/save/get/set.
+pytest --cov shows >90% coverage across all modules.
 
-CLI commands: config init, config get, config set, config list, config reset.
+All tests pass in CI (GitHub Actions) on every push.
 
-Update all existing commands to read from config.
+A tests/ directory with well‑organized test files (mirroring src/ structure).
 
-Unit tests for config module.
-
-Documentation.
+Documentation on how to run tests (docs/contributing.md).
 
 🧠 Expected Behaviour
-1. Config File Structure (~/.mcp-debugger/config.toml)
-toml
-# mcp-debugger configuration
-# Generated with `mcp-debugger config init`
 
-[general]
-# Default output format for commands that support it
-# Values: "rich", "json"
-default_output = "rich"
+1. Test Organisation
+   Mirror the src/ directory structure:
 
-# Whether to enable colours (auto-detected if not set)
-color = true
+text
+tests/
+├── conftest.py # Shared fixtures (DB, temp dirs, mock servers)
+├── test_cli/
+│ ├── test_proxy.py
+│ ├── test_list.py
+│ ├── test_inspect.py
+│ ├── test_validate.py
+│ ├── test_stats.py
+│ ├── test_export.py
+│ └── test_replay.py
+├── test_protocol/
+│ ├── test_schemas.py
+│ ├── test_validator.py
+│ └── test_error_classifier.py
+├── test_proxy/
+│ └── test_stdio_proxy.py
+├── test_storage/
+│ └── test_database.py
+├── test_replay/
+│ ├── test_engine.py
+│ └── test_diff.py
+├── test_exporters/
+│ ├── test_json.py
+│ ├── test_markdown.py
+│ └── test_otlp.py
+├── test_config.py
+├── test_integration.py # End‑to‑end workflows
+├── test_stress.py # Performance benchmarks
+└── test_property.py # Hypothesis‑based property tests 2. Unit Tests
+Goal: >90% line coverage.
 
-[proxy]
-# Default timeout for proxy operations (milliseconds)
-timeout = 5000
+Mocking: Use pytest-mock to mock database, subprocess, file I/O, network calls (OTLP).
 
-# Whether to show verbose output during proxy run
-verbose = false
+Parametrize: Use @pytest.mark.parametrize to test many inputs.
 
-# Default name for sessions (if not provided via --name)
-default_session_name = "mcp-session"
+Example coverage targets:
 
-[replay]
-# Default timeout per request-response (milliseconds)
-timeout = 5000
+Module Target Key areas
+protocol/schemas.py 100% All Pydantic models, validators, helper functions.
+protocol/validator.py 95% All validation rules (handshake, method names, schemas).
+protocol/error_classifier.py 100% All error codes and categories.
+storage/database.py 90% All CRUD methods, error handling, transactions.
+proxy/stdio_proxy.py 85% Subprocess lifecycle, I/O forwarding, signal handling.
+replay/engine.py 90% Replay loop, timeout handling, diff integration.
+cli/\*.py 80% Command parsing, flag handling, output generation (hard to test fully).
+config.py 95% Load/save/get/set, validation. 3. Integration Tests
+Goal: Test the entire pipeline: proxy → inspect → stats → export → replay.
 
-# Default server command for replay (can be overridden by --server or --alias)
-default_server = ""
+Approach: Use a temporary directory, a mock or real MCP server (filesystem), and a test‑specific database.
 
-# Whether to auto-save replay results
-auto_save = false
+Test sequence:
 
-# Whether to show diff-only output by default
-diff_only = false
+Start proxy with a mock server that responds to initialize, tools/list, and a few tools/call.
+Send a predefined sequence of messages via stdin.
+Stop proxy, verify DB contains correct session, messages, tools.
+Run inspect on the session (compare output snapshot or query DB).
+Run stats and verify aggregate counts.
+Run export to JSON and validate structure.
+Run replay against the same server and verify 100% match.
+Run replay against a different server (or a modified version) and verify mismatches are detected.
+Tools: subprocess or asyncio.create_subprocess_exec to run the CLI commands as a child process, or call the internal functions directly (more stable).
 
-# Default OTLP endpoint
-otlp_endpoint = "http://localhost:4317"
+4. Property‑Based Tests (Hypothesis)
+   Goal: Verify invariants that should hold for all valid inputs.
 
-# Default OTLP service name
-otlp_service_name = "mcp-debugger"
-
-# Whether to enable OTLP export by default
-otlp_export = false
-
-[export]
-# Default export format (json, markdown, otlp)
-default_format = "json"
-
-# Whether to pretty-print JSON by default
-pretty_json = true
-
-[validate]
-# Whether to use strict mode (fail on warnings) or permissive mode (warnings only)
-strict = false
-
-# Whether to run validation on recorded sessions by default
-auto_validate = false
-
-[doctor]
-# Whether to check for optional dependencies (npx, node, etc.)
-check_optional = true
-
-# Path to Node.js executable (auto-detected if empty)
-node_path = ""
-
-[aliases]
-# Short names for server commands
-# Usage: mcp-debugger replay 42 --alias fs
-fs = "npx -y @modelcontextprotocol/server-filesystem /tmp"
-gh = "npx -y @modelcontextprotocol/server-github"
-pg = "npx -y @modelcontextprotocol/server-postgres postgresql://localhost/mcp"
-fetch = "npx -y @modelcontextprotocol/server-fetch"
-
-[profiles]
-# Replay profiles (also accessible via `replay profile` commands)
-# Replay profiles are stored here for consistency
-[profiles.prod]
-server = "npx -y @modelcontextprotocol/server-filesystem /prod/data"
-timeout = 10000
-2. Config Commands
-Command	Behaviour
-mcp-debugger config init	Create default config file in ~/.mcp-debugger/config.toml (if missing). If file exists, prompt before overwriting (or use --force).
-mcp-debugger config get <key>	Show the value of a specific config key (e.g., config get replay.timeout). If key is nested, use dot notation.
-mcp-debugger config set <key> <value>	Set a config value. Creates the key if it doesn't exist.
-mcp-debugger config list	Show all config values in a formatted table.
-mcp-debugger config reset	Reset config to defaults (prompt before overwriting).
-mcp-debugger config unset <key>	Remove a config key (revert to default).
 Examples:
 
-bash
-mcp-debugger config set replay.timeout 10000
-mcp-debugger config set aliases.fs "npx -y @modelcontextprotocol/server-filesystem /tmp"
-mcp-debugger config get replay.default_server
-mcp-debugger config list
-3. Integration with CLI Commands
-Every CLI command will now:
+Any valid JSON‑RPC request parsed by schemas.JSONRPCRequest can be serialized back to JSON and re‑parsed identically.
 
-Load config at startup (cached to avoid repeated file reads).
+ProtocolValidator.validate_message() never raises an exception; always returns a list of ValidationResult.
 
-For each flag, check if the flag was provided by the user. If not, check the config for a matching key. If still not found, use the hardcoded default.
+Database.log_message() and Database.get_messages() are consistent (inserted message can be retrieved).
 
-Precedence: CLI flag > Config file > Code default.
+compare_json() is symmetric: compare(a, b) == compare(b, a) (ignoring order).
 
-Example for replay command:
+Strategy: Use hypothesis strategies to generate valid JSON‑RPC messages (based on MCP spec) and arbitrary JSON values. Then run tests on thousands of random inputs.
 
-python
-# In replay command
-timeout = ctx.obj["timeout"] or config.get("replay.timeout", 5000)
-server = server or config.get("replay.default_server")
-4. Config Validation
-On load, validate that the config file is valid TOML.
+5. Stress Tests
+   Goal: Ensure the tool handles realistic workloads without memory leaks or timeout.
 
-If invalid, print a warning and use defaults.
+Scenarios:
 
-The doctor command should check config validity and report any issues.
+Large session: Generate 10,000 messages (random method, params, latency) and insert into DB via proxy. Measure time (< 2 seconds? < 5? acceptable).
 
-5. Alias Resolution
-When a command receives --alias <name>:
+Large replay: Replay that session against a mock server that responds instantly. Measure time.
 
-Look up <name> in config.aliases.
+Concurrent proxies: Run two proxies simultaneously against different servers (or same server but different sessions) – no database corruption.
 
-If found, use the alias value as the server command.
+Large messages: Send a 50MB JSON message; ensure proxy doesn't crash (may be slow, but should not explode).
 
-If --server is also provided, --server takes precedence (or vice versa – decide: alias is a shorthand, so --server overrides).
-
-6. Profiles (Optional)
-Replay profiles (Day 18) are now stored in the same config file under [profiles]. The replay profile commands read/write from the config. This consolidates storage.
+Tools: pytest-benchmark for timing, memory-profiler for memory tracking, pytest-xdist for concurrent test runs.
 
 🔗 Integration with Previous Days
-All days: Every command that accepts flags now reads from config.
+All modules: Tests will validate every feature built.
 
-Day 10 (Validate): validate.strict and validate.auto_validate config keys.
+Day 7 (Doctor): Test doctor command output.
 
-Day 17/18 (Replay): replay.* config keys.
+Day 20 (Config): Test config loading and fallback.
 
-Day 13 (Export): export.* config keys.
-
-Day 7 (Doctor): Now checks config validity and reports issues.
+Day 21 (Performance): Stress tests will verify performance improvements are real.
 
 ⚙️ Production Considerations
-Config File Location
-Linux/macOS: ~/.mcp-debugger/config.toml
+Running Tests in CI
+GitHub Actions: run pytest on Python 3.11 and 3.12 on every push.
 
-Windows: %APPDATA%\mcp-debugger\config.toml (use appdirs library to handle cross‑platform). For MVP, assume Linux/macOS; mention Windows support later.
+Use pytest-cov to generate coverage reports and fail if coverage drops below threshold (e.g., 85%).
 
-File Permissions
-Config file may contain sensitive data (e.g., PostgreSQL connection strings). Set permissions to 0o600 (owner read/write only) on creation.
+Integration tests that require npx should be run only if Node.js is installed (check in CI).
 
-Performance
-Load config once at CLI startup and cache it.
+Managing Test Data
+Use temporary directories (tmp_path fixture in pytest) for databases and mock server scripts.
 
-On config set, write to file immediately (but keep cache in sync).
+Avoid hardcoded paths.
 
-Error Handling
-If config file is missing, treat as empty (all defaults).
+Use environment variables to control OTLP export in tests (mocked or skipped).
 
-If config file is corrupt, print a warning and use defaults.
+Mocking Strategies
+For asyncio.subprocess, use pytest-asyncio and mock create_subprocess_exec to return a mock process.
 
-If config set fails (e.g., permission denied), print error and exit.
+For aiosqlite, use an in‑memory database (:memory:) for speed in unit tests (but not for integration tests where persistence is needed).
 
-Forward Compatibility
-If a new config key is added in a future version, old config files should still work (ignore unknown keys). Use tomllib with parse_float or custom handling.
+For OTLP exporter, mock the gRPC client to avoid network calls.
 
-✅ Day 20 Verification Checklist
-#	Check	How to verify
-1	mcp-debugger config init creates ~/.mcp-debugger/config.toml	File exists, contains all sections.
-2	mcp-debugger config list shows all config values in a table	Output includes general, proxy, replay, aliases, etc.
-3	mcp-debugger config get replay.timeout returns the value	Correct value printed.
-4	mcp-debugger config set replay.timeout 10000 updates the file	get now returns 10000.
-5	CLI commands respect config values	Run mcp-debugger replay 42 (without flags) – uses replay.default_server if set.
-6	CLI flags override config values	mcp-debugger replay 42 --timeout 2000 uses 2000, not config.
-7	Aliases work: mcp-debugger replay 42 --alias fs	Resolves to server command from aliases.fs.
-8	--alias with --server – --server wins	Confirm precedence.
-9	config unset replay.timeout removes the key	get now returns default (5000).
-10	config reset restores defaults	All keys revert to original defaults.
-11	doctor reports config file status	Shows ✓ Config file valid or ✗ Config file invalid.
-12	Config file permissions are 600	ls -l ~/.mcp-debugger/config.toml → -rw-------.
-13	Corrupt config file is handled gracefully	Edit file to invalid TOML, run mcp-debugger replay – warning printed, defaults used.
-14	Unit tests for config module (load, save, get, set)	pytest tests/test_config.py passes.
-15	mypy --strict passes	–
-16	ruff check passes	–
-17	Documentation updated (docs/config.md with all keys and examples)	–
-18	Commit with message feat(config): add configuration management	–
+Coverage Reporting
+pytest --cov=src/mcp_debugger --cov-report=html --cov-report=term
+
+Coverage should be measured excluding test files and CLI entry points (**main**.py).
+
+Aim for >90% overall, but individual modules may have lower coverage (e.g., CLI due to Typer magic). Still try.
+
+✅ Day 22 Verification Checklist
+
+# Check How to verify
+
+1 tests/ directory mirrors src/ structure Files exist for each module.
+2 All existing tests pass (pytest) pytest – green.
+3 Coverage report generated (pytest --cov) Shows coverage >85% (or target).
+4 Unit tests for schemas.py cover all models and validators test_protocol.py includes parametrized tests.
+5 Unit tests for validator.py cover all rules Each rule has a test (valid and invalid).
+6 Unit tests for database.py cover all methods with error handling Mock DB or real DB with rollbacks.
+7 Unit tests for stdio_proxy.py mock subprocess to test I/O forwarding Mock process with asyncio.create_subprocess_exec.
+8 Unit tests for replay_engine.py mock server responses Verify replay sends messages and captures responses.
+9 Integration test runs full pipeline (proxy → inspect → stats → export → replay) Test passes in CI.
+10 Property‑based tests for schemas (round‑trip) hypothesis tests pass with 100+ random examples.
+11 Property‑based tests for compare_json (symmetry, idempotence) Pass.
+12 Stress test: 10k messages inserted in < 5 seconds pytest-benchmark shows acceptable time.
+13 Stress test: replay 10k messages in < 10 seconds Acceptable.
+14 Stress test: large message (50MB) does not crash proxy Handles with warning.
+15 mypy --strict passes in test files (optional, but nice) –
+16 ruff check passes on test files –
+17 Documentation: docs/contributing.md with test instructions Created.
+18 CI runs all tests on every push and PR GitHub Actions green.
+19 Commit with message test: comprehensive test suite –

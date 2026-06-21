@@ -108,6 +108,9 @@ class StdioProxy:
 
         self._running_tasks = [client_task, server_task, monitor_task]
 
+        # Enable batch writes – the proxy is the only high-throughput writer
+        self.database.start_flush_task()
+
         try:
             await asyncio.gather(*self._running_tasks, return_exceptions=True)
         except (KeyboardInterrupt, asyncio.CancelledError):
@@ -204,10 +207,30 @@ class StdioProxy:
             if task != asyncio.current_task() and not task.done():
                 task.cancel()
 
+    # ---- Large-message size limit (bytes) ---------------------------
+    _WARN_SIZE = 1 * 1024 * 1024   # 1 MB  – warn but still store
+    _MAX_SIZE  = 10 * 1024 * 1024  # 10 MB – truncate storage
+
     async def _handle_message(self, line: str, direction: str) -> None:
         """Safely decode, validate, and log JSON-RPC messages to the database."""
         stripped = line.strip()
         if not stripped:
+            return
+
+        # Guard against pathologically large messages
+        msg_bytes = len(stripped.encode("utf-8"))
+        if msg_bytes > self._WARN_SIZE:
+            print(
+                f"[mcp-debugger warning] Large message from {direction}: "
+                f"{msg_bytes / 1024:.0f} KB",
+                file=sys.stderr,
+            )
+        if msg_bytes > self._MAX_SIZE:
+            print(
+                "[mcp-debugger warning] Message exceeds 10 MB limit – skipping storage.",
+                file=sys.stderr,
+            )
+            # Still forward to client/server but do not store
             return
 
         try:
@@ -322,6 +345,10 @@ class StdioProxy:
         exit_code = self.process_exit_code if self.process_exit_code is not None else 0
         status = "completed" if exit_code == 0 else "error"
         try:
+            # Stop the batch flush task and drain all remaining queued writes
+            # before we record the final session status. This ensures every
+            # message is persisted even if the proxy exits quickly.
+            await self.database.stop_flush_task()
             await self.database.close_session(self.session_id, status=status)
             logger.info("Closed session %s with status '%s'", self.session_id, status)
         except Exception as e:

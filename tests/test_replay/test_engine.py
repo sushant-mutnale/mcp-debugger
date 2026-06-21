@@ -1,133 +1,15 @@
-"""Unit tests for the Replay Engine."""
-
 import asyncio
 import json
-import os
 import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict
+from typing import Any, Dict
 import pytest
 
 from mcp_debugger.storage.database import Database
 from mcp_debugger.replay.engine import ReplayEngine, deep_compare
-from mcp_debugger.replay.diff import compare_json, render_diff, DiffType
-
-
-
-@pytest.fixture
-async def temp_db() -> AsyncGenerator[Database, None]:
-    """Fixture that returns a temporary database instance and closes it after the test."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    db = Database(db_path=path)
-    await db.connect()
-    yield db
-    await db.close()
-    try:
-        os.remove(path)
-    except Exception:
-        pass
-
-
-def test_deep_compare() -> None:
-    """Verify deep comparison of JSON objects works, ignoring expected variant keys."""
-    obj1 = {"status": "ok", "timestamp": 1234567, "data": {"val": 10, "latency_ms": 50}}
-    obj2 = {"status": "ok", "timestamp": 7654321, "data": {"val": 10, "latency_ms": 20}}
-    assert deep_compare(obj1, obj2)
-
-    # Different value
-    obj3 = {"status": "failed", "timestamp": 1234567, "data": {"val": 10}}
-    assert not deep_compare(obj1, obj3)
-
-    # Different nested value
-    obj4 = {"status": "ok", "timestamp": 1234567, "data": {"val": 20}}
-    assert not deep_compare(obj1, obj4)
-
-    # Missing keys
-    obj5 = {"status": "ok"}
-    assert not deep_compare(obj1, obj5)
-
-
-def test_diff() -> None:
-    """Verify compare_json and render_diff on JSON structures."""
-    # 1. Simple unchanged
-    assert compare_json({"a": 1}, {"a": 1}) is None
-
-    # 2. Simple changed
-    diff = compare_json({"a": 1}, {"a": 2})
-    assert diff is not None
-    assert diff.type == DiffType.CHANGED
-    assert len(diff.children) == 1
-    assert diff.children[0].path == "a"
-    assert diff.children[0].type == DiffType.CHANGED
-    assert diff.children[0].old_value == 1
-    assert diff.children[0].new_value == 2
-
-    # 3. Added and Removed keys
-    diff = compare_json({"a": 1, "b": 2}, {"b": 2, "c": 3})
-    assert diff is not None
-    assert len(diff.children) == 2
-    paths = {c.path: c for c in diff.children}
-    assert "a" in paths
-    assert paths["a"].type == DiffType.REMOVED
-    assert paths["a"].old_value == 1
-
-    assert "c" in paths
-    assert paths["c"].type == DiffType.ADDED
-    assert paths["c"].new_value == 3
-
-    # 4. Nested dict changed
-    diff = compare_json({"meta": {"status": "ok"}}, {"meta": {"status": "error"}})
-    assert diff is not None
-    # Check hierarchy
-    assert diff.children[0].path == "meta"
-    assert diff.children[0].children[0].path == "meta.status"
-    assert diff.children[0].children[0].type == DiffType.CHANGED
-    assert diff.children[0].children[0].old_value == "ok"
-    assert diff.children[0].children[0].new_value == "error"
-
-    # 5. List index comparison
-    diff = compare_json({"arr": [1, 2, 3]}, {"arr": [1, 5, 3, 4]})
-    assert diff is not None
-    # Changed index [1] and added index [3]
-    arr_diff = diff.children[0]
-    assert arr_diff.path == "arr"
-    assert len(arr_diff.children) == 2
-    assert arr_diff.children[0].path == "arr[1]"
-    assert arr_diff.children[0].type == DiffType.CHANGED
-    assert arr_diff.children[0].old_value == 2
-    assert arr_diff.children[0].new_value == 5
-    assert arr_diff.children[1].path == "arr[3]"
-    assert arr_diff.children[1].type == DiffType.ADDED
-    assert arr_diff.children[1].new_value == 4
-
-    # 6. Type changes
-    diff = compare_json({"val": 42}, {"val": "forty-two"})
-    assert diff is not None
-    assert diff.children[0].type == DiffType.CHANGED
-    assert diff.children[0].old_value == 42
-    assert diff.children[0].new_value == "forty-two"
-
-    # 7. Render diff output containing Rich markup representation
-    rendered = render_diff(diff)
-    assert "[yellow]" in rendered
-    assert "[red]- 42" in rendered
-    assert "[green]+ \"forty-two\"" in rendered
-
-    # 8. Performance test with 1MB JSON (hits guard)
-    large_orig = {"data": [i for i in range(150000)]}
-    large_rep = {"data": [i if i != 75000 else -1 for i in range(150000)]}
-
-    import time
-    start = time.perf_counter()
-    large_diff = compare_json(large_orig, large_rep)
-    elapsed = time.perf_counter() - start
-    assert elapsed < 0.5
-    assert large_diff is not None
-    assert "[JSON too large to diff]" in str(large_diff.old_value)
-
+from mcp_debugger.replay.diff import DiffType
 
 
 async def test_get_replay_messages(temp_db: Database) -> None:
@@ -432,3 +314,139 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
         assert result.messages[0].matches is True  # initialize
         assert result.messages[1].matches is True  # notifications/initialized
         assert result.messages[2].matches is True  # tools/list
+
+
+async def test_replay_engine_edge_cases(temp_db: Database) -> None:
+    """Verify various edge cases, deep comparison, server spawn failure, and cleanup issues."""
+    from unittest.mock import MagicMock, patch
+
+    engine = ReplayEngine(temp_db)
+
+    # 1. deep_compare edge cases
+    # dict keys mismatch
+    assert deep_compare({"a": 1}, {"b": 2}) is False
+    # list lengths mismatch
+    assert deep_compare([1], [1, 2]) is False
+    # list element mismatch
+    assert deep_compare([1], [2]) is False
+
+    # 2. Server fails to spawn (invalid command)
+    session_id = await temp_db.create_session("invalid_spawn")
+    await temp_db.log_message(
+        session_id=session_id,
+        direction="client_to_server",
+        message={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+    )
+    with patch("asyncio.create_subprocess_shell", side_effect=OSError("spawn failed")):
+        result = await engine.replay(
+            session_id=session_id,
+            target_server_command="nonexistent_command_xyz_123_invalid",
+            timeout_ms=500,
+            persist=True,
+        )
+    assert result.total_messages_replayed == 1
+    assert "Failed to start server: spawn failed" in result.messages[0].error
+
+    # 3. Callbacks and selective filtering
+    called_back = []
+    def callback(curr, total):
+        called_back.append((curr, total))
+
+    session_id_2 = await temp_db.create_session("echo_cmd")
+    await temp_db.log_message(
+        session_id=session_id_2,
+        direction="client_to_server",
+        message={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+    )
+    await temp_db.log_message(
+        session_id=session_id_2,
+        direction="server_to_client",
+        message={"jsonrpc": "2.0", "id": 1, "result": "pong"},
+    )
+    await temp_db.log_message(
+        session_id=session_id_2,
+        direction="client_to_server",
+        message={"jsonrpc": "2.0", "id": 2, "method": "other"},
+    )
+    await temp_db.log_message(
+        session_id=session_id_2,
+        direction="server_to_client",
+        message={"jsonrpc": "2.0", "id": 2, "result": "pong"},
+    )
+
+    python_path = sys.executable
+    echo_cmd = f'"{python_path}" tests/mock_servers/echo_server.py'
+
+    result_selective = await engine.replay(
+        session_id=session_id_2,
+        target_server_command=echo_cmd,
+        replay_mode="selective",
+        message_filter=["ping"],
+        on_message_replayed=callback,
+        persist=False,
+    )
+    # "ping" is replayed, "other" is skipped
+    assert result_selective.total_messages_replayed == 1
+    assert len(called_back) == 1
+    assert called_back[0] == (1, 1)
+
+    # 4. Wait_for general exception during waiting for response
+    original_wait_for = asyncio.wait_for
+    async def mock_wait_for(fut, timeout=None):
+        if not asyncio.iscoroutine(fut):
+            raise RuntimeError("simulated wait error")
+        return await original_wait_for(fut, timeout=timeout)
+
+    with patch("asyncio.wait_for", side_effect=mock_wait_for):
+        result_error = await engine.replay(
+            session_id=session_id_2,
+            target_server_command=echo_cmd,
+            persist=False,
+        )
+        assert any("simulated wait error" in str(m.error) for m in result_error.messages)
+
+    # 5. Process terminate/kill exception handling during cleanup
+    class MockProcess:
+        def __init__(self):
+            self.stdin = MagicMock()
+            self.stdout = asyncio.StreamReader()
+            self.stderr = None
+        def terminate(self):
+            raise RuntimeError("Simulated terminate failure")
+        def kill(self):
+            raise RuntimeError("Simulated kill failure")
+        async def wait(self):
+            return 0
+   
+    proc = MockProcess()
+    proc.stdout.feed_data(b'{"jsonrpc": "2.0", "id": 1, "result": "pong"}\n')
+    proc.stdout.feed_eof()
+
+    with patch("asyncio.create_subprocess_shell", return_value=proc):
+        result_cleanup = await engine.replay(
+            session_id=session_id_2,
+            target_server_command="dummy_cmd",
+            persist=False,
+        )
+        assert result_cleanup.total_messages_replayed > 0
+
+    # 6. Non-integer msg_id conversion failure handling
+    session_id_str = await temp_db.create_session("echo_cmd")
+    await temp_db.log_message(
+        session_id=session_id_str,
+        direction="client_to_server",
+        message={"jsonrpc": "2.0", "id": "msg-abc", "method": "ping", "params": "pong"},
+    )
+    await temp_db.log_message(
+        session_id=session_id_str,
+        direction="server_to_client",
+        message={"jsonrpc": "2.0", "id": "msg-abc", "result": "pong"},
+    )
+    result_str = await engine.replay(
+        session_id=session_id_str,
+        target_server_command=echo_cmd,
+        persist=False,
+    )
+    assert result_str.total_messages_replayed == 1
+    assert result_str.messages[0].matches is True
+

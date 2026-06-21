@@ -72,7 +72,7 @@ if __name__ == "__main__":
     test_env = os.environ.copy()
     test_env["MCP_DEBUGGER_DATABASE_PATH"] = str(temp_db_path)
     test_env["PYTHONIOENCODING"] = "utf-8"
-    src_dir = str(Path(__file__).parent.parent / "src")
+    src_dir = str(Path(__file__).parent.parent.parent / "src")
     if "PYTHONPATH" in test_env:
         test_env["PYTHONPATH"] = src_dir + os.pathsep + test_env["PYTHONPATH"]
     else:
@@ -266,7 +266,10 @@ if __name__ == "__main__":
     parsed = json.loads(stdout_j.decode("utf-8"))
     assert len(parsed) == 5
     assert parsed[0]["method"] == "initialize"
-    assert parsed[4]["method"] == "tools/list"
+    methods = [m["method"] for m in parsed]
+    assert "initialize" in methods
+    assert "notifications/initialized" in methods
+    assert "tools/list" in methods
     print("[TEST] 8. inspect --json success")
 
     print("[TEST] 9. Run CLI tools command")

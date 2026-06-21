@@ -1,5 +1,6 @@
 from mcp_debugger.protocol.error_classifier import ErrorClassifier
 
+
 def test_error_classifier_non_error() -> None:
     classifier = ErrorClassifier()
     assert classifier.classify({"jsonrpc": "2.0", "id": 1, "result": {"success": True}}) is None
@@ -98,7 +99,6 @@ def test_error_classifier_tool_failures() -> None:
     assert sug is not None
     assert "permissions" in sug.lower()
 
-    # Successful JSON-RPC but tool isError=True with permission denied
     res2 = classifier.classify({
         "jsonrpc": "2.0",
         "id": 2,
@@ -115,3 +115,37 @@ def test_error_classifier_tool_failures() -> None:
     assert "Permission denied" in msg2
     assert sug2 is not None
     assert "access rights" in sug2.lower()
+
+
+def test_error_classifier_edge_cases() -> None:
+    classifier = ErrorClassifier()
+
+    # 1. Error with 'data' field
+    res_data = classifier.classify({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {"code": -32602, "message": "Invalid params", "data": "detail-info"}
+    })
+    assert res_data is not None
+    assert "detail-info" in res_data[1]
+
+    # 2. Standard protocol errors (-32700, -32600, -32603)
+    for code in (-32700, -32600, -32603):
+        res_proto = classifier.classify({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": code, "message": "Protocol error"}
+        })
+        assert res_proto is not None
+        assert res_proto[0] == "protocol"
+        assert "protocol error occurred" in res_proto[2].lower()
+
+    # 3. Unknown / unclassified error code
+    res_unknown = classifier.classify({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {"code": 9999, "message": "Some custom error"}
+    })
+    assert res_unknown is not None
+    assert res_unknown[0] == "unknown"
+

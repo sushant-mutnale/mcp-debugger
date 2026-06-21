@@ -1,9 +1,6 @@
-"""Unit tests for the stdio proxy core."""
-
 import asyncio
-import os
-import tempfile
-from typing import Any, AsyncGenerator, List, Optional
+import unittest
+from typing import Any, List, Optional
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -71,21 +68,6 @@ class MockProcess:
 
     def kill(self) -> None:
         self.killed = True
-
-
-@pytest.fixture
-async def temp_db() -> AsyncGenerator[Database, None]:
-    """Fixture returning a temporary Database connection."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    db = Database(db_path=path)
-    await db.connect()
-    yield db
-    await db.close()
-    try:
-        os.remove(path)
-    except Exception:
-        pass
 
 
 def test_split_command() -> None:
@@ -592,3 +574,186 @@ async def test_proxy_database_failure(temp_db: Database) -> None:
     ):
         exit_code = await proxy.run()
         assert exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_proxy_large_message_and_tools_list(temp_db: Database, capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify handling of large messages (warning/truncation limits) and tools list logging."""
+    import json
+    session_id = await temp_db.create_session("mock-server")
+    
+    # Message larger than WARN_SIZE but below MAX_SIZE (e.g. 1.5MB)
+    warn_payload = {"jsonrpc": "2.0", "id": 1, "method": "warn", "params": "x" * (1024 * 1024 + 100)}
+    warn_line = json.dumps(warn_payload)
+    
+    # Message larger than MAX_SIZE (e.g. 11MB)
+    max_payload = {"jsonrpc": "2.0", "id": 2, "method": "max", "params": "y" * (10 * 1024 * 1024 + 100)}
+    max_line = json.dumps(max_payload)
+
+    # Standard tool list response
+    tools_payload = {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+            "tools": [
+                {"name": "my_tool", "description": "some tool", "inputSchema": {"type": "object"}}
+            ]
+        }
+    }
+    tools_line = json.dumps(tools_payload)
+
+    mock_process = MockProcess(stdout_lines=[tools_line + "\n"])
+    mock_stdin = MagicMock()
+    mock_stdin.readline.side_effect = [
+        warn_line + "\n",
+        max_line + "\n",
+        "",  # EOF
+    ]
+
+    proxy = StdioProxy(
+        server_command="mock-server",
+        database=temp_db,
+        session_id=session_id,
+        verbose=True,
+    )
+
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=mock_process),
+        patch("sys.stdin", mock_stdin),
+    ):
+        exit_code = await proxy.run()
+        assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert "Large message from client_to_server" in captured.err
+    assert "Message exceeds 10 MB limit" in captured.err
+
+    # Check that tools were registered in database
+    tools = await temp_db.get_tools(session_id)
+    assert len(tools) == 1
+    assert tools[0]["name"] == "my_tool"
+
+
+@pytest.mark.asyncio
+async def test_proxy_cleanup_exceptions(temp_db: Database) -> None:
+    """Verify cleanup exception handling for ProcessLookupError and other errors."""
+    session_id = await temp_db.create_session("mock-server")
+    proxy = StdioProxy(
+        server_command="mock-server",
+        database=temp_db,
+        session_id=session_id,
+    )
+
+    # 1. ProcessLookupError on terminate
+    mock_process1 = MagicMock()
+    mock_process1.terminate.side_effect = ProcessLookupError()
+    proxy.process = mock_process1
+    await proxy._cleanup()
+    assert proxy.process is None
+
+    # 2. General Exception on terminate
+    mock_process2 = MagicMock()
+    mock_process2.terminate.side_effect = RuntimeError("Generic termination failure")
+    proxy.process = mock_process2
+    await proxy._cleanup()
+    assert proxy.process is None
+
+
+@pytest.mark.asyncio
+async def test_proxy_handle_message_database_errors(temp_db: Database, capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify stdio proxy handles database failures inside message loop."""
+    import json
+    session_id = await temp_db.create_session("mock-server")
+    proxy = StdioProxy(
+        server_command="mock-server",
+        database=temp_db,
+        session_id=session_id,
+        verbose=True,
+    )
+
+    # 1. log_message raises database error for valid JSON (both standard valid jsonrpc schema and raw fallback mismatch)
+    # We want standard log to fail and validation fallback log to ALSO fail
+    with patch.object(temp_db, "log_message", side_effect=RuntimeError("Database failure")):
+        # A. Valid JSON-RPC: standard validation succeeds, log_message fails -> covers standard db error
+        payload_valid_rpc = '{"jsonrpc": "2.0", "id": 1, "method": "ping"}\n'
+        await proxy._handle_message(payload_valid_rpc, "client_to_server")
+        captured_valid = capsys.readouterr()
+        assert "Failed to log message to database" in captured_valid.err
+
+        # B. Invalid JSON-RPC: standard validation fails, raw log fallback fails -> covers raw db error
+        payload_invalid_rpc = '{"some_random_key": "some_value"}\n'
+        await proxy._handle_message(payload_invalid_rpc, "client_to_server")
+        captured_invalid = capsys.readouterr()
+        assert "Failed to log raw message to database" in captured_invalid.err
+
+    # 2. log_error raises database error when logging a classified error
+    # We log a JSON-RPC error response to trigger ErrorClassifier
+    err_payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+            "code": -32601,
+            "message": "Method not found"
+        }
+    }
+    # Mock log_message to succeed, but log_error to fail
+    with patch.object(temp_db, "log_message", new_callable=unittest.mock.AsyncMock, return_value=123):
+        with patch.object(temp_db, "log_error", side_effect=RuntimeError("Log error database failure")):
+            await proxy._handle_message(json.dumps(err_payload), "server_to_client")
+            captured = capsys.readouterr()
+            assert "Failed to log classified error to database" in captured.err
+
+    # 3. Invalid error code (non-integer error code string)
+    invalid_code_payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+            "code": "non-integer-code",
+            "message": "Method not found"
+        }
+    }
+    with patch.object(temp_db, "log_message", new_callable=unittest.mock.AsyncMock, return_value=123):
+        with patch.object(temp_db, "log_error", new_callable=unittest.mock.AsyncMock) as mock_log_error:
+            await proxy._handle_message(json.dumps(invalid_code_payload), "server_to_client")
+            # Should have been logged with error_code=None
+            mock_log_error.assert_called_once()
+            _, kwargs = mock_log_error.call_args
+            assert kwargs["error_code"] is None
+
+
+@pytest.mark.asyncio
+async def test_proxy_stdin_exception_and_missing_process(temp_db: Database) -> None:
+    """Verify proxy behavior when writing to stdin raises an exception or process/stdout is missing."""
+    session_id = await temp_db.create_session("mock-server")
+
+    # 1. Stdin write exception
+    proxy1 = StdioProxy(
+        server_command="mock-server",
+        database=temp_db,
+        session_id=session_id,
+    )
+
+    mock_process = MockProcess(stdout_lines=[])
+    # Mock write to raise Exception
+    mock_process.stdin.write = MagicMock(side_effect=RuntimeError("Pipe error"))
+    proxy1.process = mock_process
+
+    # Put a line and call the loop
+    queue = asyncio.Queue()
+    await queue.put("hello\n")
+    await proxy1._client_to_server_loop(queue)
+
+    # 2. Missing process or stdout checks
+    proxy2 = StdioProxy(
+        server_command="mock-server",
+        database=temp_db,
+        session_id=session_id,
+    )
+    # process is None
+    proxy2.process = None
+    # Loops and monitors should return immediately
+    await proxy2._server_to_client_loop()
+    await proxy2._monitor_subprocess()
+
+
+
