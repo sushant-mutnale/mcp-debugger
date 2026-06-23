@@ -148,7 +148,6 @@ class StdioProxy:
             if self.process and self.process.stdin:
                 try:
                     self.process.stdin.close()
-                    await self.process.stdin.wait_closed()
                 except Exception:
                     pass
 
