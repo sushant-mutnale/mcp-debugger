@@ -363,6 +363,7 @@ class ReplayEngine:
             except Exception:
                 try:
                     process.kill()
+                    await process.wait()
                 except Exception:
                     pass
 

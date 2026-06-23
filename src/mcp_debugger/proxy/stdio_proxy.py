@@ -42,6 +42,7 @@ class StdioProxy:
         self, queue: asyncio.Queue[Optional[str]], loop: asyncio.AbstractEventLoop
     ) -> None:
         """Read lines from sys.stdin in a background thread and push them onto the async queue."""
+        import threading
 
         def blocking_read() -> None:
             while True:
@@ -55,8 +56,10 @@ class StdioProxy:
                     break
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        # Execute blocking read loop in loop default executor to avoid Windows ThreadPoolExecutor shutdown hang
-        await loop.run_in_executor(None, blocking_read)
+        # Spawn a daemon thread so it does not block interpreter shutdown
+        thread = threading.Thread(target=blocking_read, daemon=True)
+        thread.start()
+        await asyncio.sleep(0)  # Yield control to let the thread spin up
 
     async def run(self) -> int:
         """Start the subprocess, instantiate the pipeline readers, and run the event piping loop."""

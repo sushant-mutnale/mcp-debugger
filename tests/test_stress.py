@@ -142,28 +142,41 @@ for line in sys.stdin:
             name,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
             env=test_env,
         )
 
         assert proc.stdin is not None
         assert proc.stdout is not None
 
-        # Send 10 messages
-        for i in range(10):
-            req = {
-                "jsonrpc": "2.0",
-                "id": i,
-                "method": "ping",
-                "params": {"client": name, "num": i},
-            }
-            proc.stdin.write(json.dumps(req).encode("utf-8") + b"\n")
-            await proc.stdin.drain()
-            # Read response
-            await proc.stdout.readline()
-
-        proc.stdin.close()
-        await proc.wait()
+        try:
+            # Send 10 messages
+            for i in range(10):
+                req = {
+                    "jsonrpc": "2.0",
+                    "id": i,
+                    "method": "ping",
+                    "params": {"client": name, "num": i},
+                }
+                proc.stdin.write(json.dumps(req).encode("utf-8") + b"\n")
+                await proc.stdin.drain()
+                # Read response
+                await proc.stdout.readline()
+        finally:
+            if proc.stdin:
+                try:
+                    proc.stdin.close()
+                    await proc.stdin.wait_closed()
+                except Exception:
+                    pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
 
     # Run two proxies concurrently
     await asyncio.gather(run_proxy_session("proxy-session-1"), run_proxy_session("proxy-session-2"))
@@ -228,7 +241,7 @@ for line in sys.stdin:
         "large-msg-session",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
         env=test_env,
     )
 
@@ -250,5 +263,17 @@ for line in sys.stdin:
         assert resp["id"] == 999
         assert resp["result"] == "ok"
     finally:
-        proc.stdin.close()
-        await proc.wait()
+        if proc.stdin:
+            try:
+                proc.stdin.close()
+                await proc.stdin.wait_closed()
+            except Exception:
+                pass
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
