@@ -126,28 +126,31 @@ class StdioProxy:
 
     async def _client_to_server_loop(self, queue: asyncio.Queue[Optional[str]]) -> None:
         """Loop reading from client standard input queue and forwarding to server stdin."""
-        while True:
-            line = await queue.get()
-            if line is None:
-                logger.info("Client standard input EOF reached. Initiating shutdown.")
+        try:
+            while True:
+                line = await queue.get()
+                if line is None:
+                    logger.info("Client standard input EOF reached. Initiating shutdown.")
+                    break
+
+                # Process and log message
+                await self._handle_message(line, direction="client_to_server")
+
+                # Forward raw bytes to server
                 if self.process and self.process.stdin:
                     try:
-                        self.process.stdin.close()
-                    except Exception:
-                        pass
-                break
-
-            # Process and log message
-            await self._handle_message(line, direction="client_to_server")
-
-            # Forward raw bytes to server
+                        self.process.stdin.write(line.encode("utf-8"))
+                        await self.process.stdin.drain()
+                    except Exception as e:
+                        logger.warning("Failed to forward bytes to server stdin: %s", e)
+                        break
+        finally:
             if self.process and self.process.stdin:
                 try:
-                    self.process.stdin.write(line.encode("utf-8"))
-                    await self.process.stdin.drain()
-                except Exception as e:
-                    logger.warning("Failed to forward bytes to server stdin: %s", e)
-                    break
+                    self.process.stdin.close()
+                    await self.process.stdin.wait_closed()
+                except Exception:
+                    pass
 
     async def _server_to_client_loop(self) -> None:
         """Loop reading from server standard output pipe and forwarding to client stdout."""
