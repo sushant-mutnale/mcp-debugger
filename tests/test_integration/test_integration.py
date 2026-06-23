@@ -92,13 +92,12 @@ if __name__ == "__main__":
         "integration-test-session",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=None,
         env=test_env,
     )
 
     assert proc.stdin is not None
     assert proc.stdout is not None
-    assert proc.stderr is not None
 
     try:
         print("[TEST] 4A. Send initialize request")
@@ -118,22 +117,12 @@ if __name__ == "__main__":
         try:
             line1_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=4.0)
         except asyncio.TimeoutError:
-            try:
-                err_data = await asyncio.wait_for(proc.stderr.read(), timeout=1.0)
-                err_str = err_data.decode()
-            except Exception:
-                err_str = "<could not read stderr>"
-            raise AssertionError(f"Timeout waiting for response. Stderr: {err_str}")
+            raise AssertionError("Timeout waiting for response.")
 
         line1 = line1_bytes.decode("utf-8").strip()
         print(f"[TEST] 4A. Received: {line1}")
         if not line1:
-            try:
-                err_data = await asyncio.wait_for(proc.stderr.read(), timeout=1.0)
-                err_str = err_data.decode()
-            except Exception:
-                err_str = "<could not read stderr>"
-            raise AssertionError(f"Subprocess stdout closed empty. Stderr: {err_str}")
+            raise AssertionError("Subprocess stdout closed empty.")
 
         init_resp = json.loads(line1)
         assert init_resp.get("id") == 1001
@@ -164,10 +153,6 @@ if __name__ == "__main__":
     finally:
         print("[TEST] 5. Shut down proxy by closing stdin")
         proc.stdin.close()
-        try:
-            await proc.stdin.wait_closed()
-        except Exception:
-            pass
 
         print("[TEST] 5. Waiting for proxy process to exit")
         try:
@@ -179,11 +164,13 @@ if __name__ == "__main__":
             await proc.wait()
             print("[TEST] 5. Proxy process killed")
 
-        try:
-            err_bytes = await asyncio.wait_for(proc.stderr.read(), timeout=1.0)
-            err_str = err_bytes.decode("utf-8")
-        except Exception:
-            err_str = "<timeout/error reading stderr>"
+        err_str = "<stderr not captured/inherited>"
+        if proc.stderr is not None:
+            try:
+                err_bytes = await asyncio.wait_for(proc.stderr.read(), timeout=1.0)
+                err_str = err_bytes.decode("utf-8")
+            except Exception:
+                err_str = "<timeout/error reading stderr>"
         print(f"[TEST] 5. Proxy stderr:\n{err_str}")
 
     print("[TEST] 6. Verify Database Contents")

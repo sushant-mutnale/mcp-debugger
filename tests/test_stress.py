@@ -166,7 +166,6 @@ for line in sys.stdin:
             if proc.stdin:
                 try:
                     proc.stdin.close()
-                    await proc.stdin.wait_closed()
                 except Exception:
                     pass
             try:
@@ -266,7 +265,6 @@ for line in sys.stdin:
         if proc.stdin:
             try:
                 proc.stdin.close()
-                await proc.stdin.wait_closed()
             except Exception:
                 pass
         try:
