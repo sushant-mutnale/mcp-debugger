@@ -9,7 +9,6 @@ import pytest
 from mcp_debugger.storage.database import Database
 
 
-
 @pytest.mark.asyncio
 async def test_integration_proxy_to_inspect(tmp_path: Path) -> None:
     print("\n[TEST] 1. Setup paths")
