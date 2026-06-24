@@ -5,7 +5,9 @@ import sys
 from pathlib import Path
 import pytest
 
+
 from mcp_debugger.storage.database import Database
+
 
 
 @pytest.mark.asyncio
@@ -20,7 +22,10 @@ import sys
 import json
 
 def main():
-    for line in sys.stdin:
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break
         if not line.strip():
             continue
         try:

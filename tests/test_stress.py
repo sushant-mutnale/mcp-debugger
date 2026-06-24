@@ -99,12 +99,14 @@ async def test_concurrent_proxies_stress(tmp_path: Path) -> None:
     db_path = tmp_path / "concurrent_stress.db"
     mock_server_path = tmp_path / "mock_echo_server.py"
 
-    # Write a quick line-by-line echo server
     mock_server_code = """
 import sys
 import json
 
-for line in sys.stdin:
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
     if not line.strip():
         continue
     try:
@@ -204,7 +206,10 @@ async def test_large_message_limit_stress(tmp_path: Path) -> None:
 import sys
 import json
 
-for line in sys.stdin:
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
     if not line.strip():
         continue
     try:

@@ -222,7 +222,7 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
         setattr(process.stdout, "_limit", 10 * 1024 * 1024)
 
         # Wait for npx startup
-        await asyncio.sleep(5.0)
+        await asyncio.sleep(10.0)
 
         async def read_json_response(stdout: asyncio.StreamReader) -> Dict[str, Any]:
             for _ in range(100):  # limit loop to prevent infinite hang

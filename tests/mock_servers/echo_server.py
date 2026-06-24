@@ -4,7 +4,10 @@ import json
 
 def main() -> None:
     """Read JSON-RPC requests from stdin and echo them back to stdout."""
-    for line in sys.stdin:
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break
         if not line.strip():
             continue
         try:
