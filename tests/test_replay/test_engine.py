@@ -216,9 +216,9 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
             server_cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
-        assert process.stdin and process.stdout
+        assert process.stdin and process.stdout and process.stderr
         setattr(process.stdout, "_limit", 10 * 1024 * 1024)
 
         # Wait for npx startup
@@ -226,7 +226,10 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
 
         async def read_json_response(stdout: asyncio.StreamReader) -> Dict[str, Any]:
             for _ in range(100):  # limit loop to prevent infinite hang
-                line_bytes = await stdout.readline()
+                try:
+                    line_bytes = await asyncio.wait_for(stdout.readline(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    raise TimeoutError("Timeout waiting for response from server")
                 if not line_bytes:
                     raise EOFError("Connection closed before response received")
                 line = line_bytes.decode("utf-8").strip()
@@ -286,6 +289,15 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
                     process.stdin.close()
                 except Exception:
                     pass
+
+            # Capture stderr logs to output on failure
+            stderr_content = b""
+            if process.stderr:
+                try:
+                    stderr_content = await asyncio.wait_for(process.stderr.read(), timeout=2.0)
+                except Exception:
+                    pass
+
             try:
                 process.terminate()
                 await asyncio.wait_for(process.wait(), timeout=3.0)
@@ -294,6 +306,12 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
                     process.kill()
                 except Exception:
                     pass
+
+            if stderr_content:
+                sys.stderr.write(
+                    f"\n--- Subprocess Stderr Output ---\n{stderr_content.decode('utf-8', errors='replace')}\n---------------------------------\n"
+                )
+                sys.stderr.flush()
 
         # Now, replay this session using the ReplayEngine
         engine = ReplayEngine(temp_db)
