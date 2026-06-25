@@ -331,6 +331,13 @@ class StdioProxy:
         """Perform graceful termination of the server subprocess and finalize the database session."""
         if self.process:
             logger.info("Terminating server subprocess...")
+            if self.process.stdin:
+                try:
+                    self.process.stdin.close()
+                    if hasattr(self.process.stdin, "wait_closed"):
+                        await self.process.stdin.wait_closed()
+                except Exception:
+                    pass
             try:
                 self.process.terminate()
                 try:

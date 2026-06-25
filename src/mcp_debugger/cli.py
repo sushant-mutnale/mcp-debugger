@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 import io
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -26,6 +27,8 @@ from mcp_debugger.analytics import (
     generate_sparkline,
     generate_bar_chart,
 )
+
+_os_name = os.name
 
 app = typer.Typer(help="MCP proxy debugger – inspect, record, validate, and replay MCP sessions")
 console = Console()
@@ -731,7 +734,6 @@ def list_errors(
 def doctor() -> None:
     """Run diagnostic checks on the environment and database setup."""
     import shutil
-    import os
 
     lines = []
     critical_failed = False
@@ -797,7 +799,7 @@ def doctor() -> None:
     db_file_path = db_dir / "sessions.db"
     if db_file_path.exists():
         # Check permissions
-        if os.name != "nt":
+        if _os_name != "nt":
             try:
                 mode = os.stat(db_file_path).st_mode & 0o777
                 if mode == 0o600:

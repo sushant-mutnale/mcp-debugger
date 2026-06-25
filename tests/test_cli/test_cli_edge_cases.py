@@ -1,7 +1,6 @@
 """Edge case and error handling tests for mcp-debugger CLI subcommands."""
 
 import json
-import os
 import sqlite3
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -10,6 +9,12 @@ from typer.testing import CliRunner
 
 from mcp_debugger.cli import app, calculate_compliance_score
 from mcp_debugger.protocol.validator import ValidationResult
+
+
+def mock_run_keyboard_interrupt(coro, *args, **kwargs):
+    if hasattr(coro, "close"):
+        coro.close()
+    raise KeyboardInterrupt
 
 
 # ===========================================================================
@@ -34,7 +39,7 @@ def test_proxy_database_session_failure(runner: CliRunner) -> None:
 
 def test_proxy_keyboard_interrupt(runner: CliRunner) -> None:
     """Verify that proxy exits cleanly with code 0 on KeyboardInterrupt."""
-    with patch("asyncio.run", side_effect=KeyboardInterrupt):
+    with patch("asyncio.run", new=mock_run_keyboard_interrupt):
         result = runner.invoke(app, ["proxy", "--server", "dummy-server"])
         assert result.exit_code == 0
 
@@ -304,52 +309,41 @@ def test_doctor_permissions_and_schema_errors(runner: CliRunner) -> None:
     """Verify permissions too open warnings (Posix) and schema check failures."""
 
     # 1. Database file check: exists but permissions check throws exception
-    class MockOSError:
-        def __init__(self):
-            self.name = "posix"
-
-        def stat(self, *args, **kwargs):
-            raise Exception("Stat error")
-
-        def __getattr__(self, name):
-            return getattr(os, name)
-
-    mock_os = MockOSError()
-    with patch.dict("sys.modules", {"os": mock_os}):
-        with patch("shutil.which", return_value="some-path"):
-            # Mock path to exist
-            with patch("pathlib.Path.exists", return_value=True):
-                result = runner.invoke(app, ["doctor"])
-                assert "Failed to check DB file permissions" in result.stdout
+    with (
+        patch("mcp_debugger.cli._os_name", "posix"),
+        patch("mcp_debugger.cli.os.stat", side_effect=Exception("Stat error")),
+        patch("mcp_debugger.cli.os.access", return_value=True),
+        patch("shutil.which", return_value="some-path"),
+        patch("pathlib.Path.exists", return_value=True),
+    ):
+        result = runner.invoke(app, ["doctor"])
+        assert "Failed to check DB file permissions" in result.stdout
 
     # 2. Database file check: exists but permission is not 600
-    class MockOSTooOpen:
-        def __init__(self):
-            self.name = "posix"
-
-        def stat(self, *args, **kwargs):
-            mock_res = MagicMock()
-            mock_res.st_mode = 0o777  # too open
-            return mock_res
-
-        def __getattr__(self, name):
-            return getattr(os, name)
-
-    mock_os_too_open = MockOSTooOpen()
-    with patch.dict("sys.modules", {"os": mock_os_too_open}):
-        with patch("shutil.which", return_value="some-path"):
-            with patch("pathlib.Path.exists", return_value=True):
-                result = runner.invoke(app, ["doctor"])
-                assert "Permissions" in result.stdout
-                assert "too open" in result.stdout
+    mock_stat = MagicMock()
+    mock_stat.st_mode = 0o777
+    with (
+        patch("mcp_debugger.cli._os_name", "posix"),
+        patch("mcp_debugger.cli.os.stat", return_value=mock_stat),
+        patch("mcp_debugger.cli.os.access", return_value=True),
+        patch("shutil.which", return_value="some-path"),
+        patch("pathlib.Path.exists", return_value=True),
+    ):
+        result = runner.invoke(app, ["doctor"])
+        assert "Permissions" in result.stdout
+        assert "too open" in result.stdout
 
     # 3. Database schema check: connect throws Exception
-    with patch("sqlite3.connect", side_effect=Exception("Connect DB error")):
-        with patch("shutil.which", return_value="some-path"):
-            with patch("pathlib.Path.exists", return_value=True):
-                result = runner.invoke(app, ["doctor"])
-                assert result.exit_code == 1
-                assert "Database schema check failed" in result.stdout
+    with (
+        patch("sqlite3.connect", side_effect=Exception("Connect DB error")),
+        patch("mcp_debugger.cli._os_name", "nt"),
+        patch("mcp_debugger.cli.os.access", return_value=True),
+        patch("shutil.which", return_value="some-path"),
+        patch("pathlib.Path.exists", return_value=True),
+    ):
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 1
+        assert "Database schema check failed" in result.stdout
 
 
 def test_doctor_config_invalid_file(runner: CliRunner) -> None:
@@ -548,7 +542,7 @@ def test_validate_rendering_info_severity(runner: CliRunner) -> None:
 
 def test_validate_keyboard_interrupt(runner: CliRunner) -> None:
     """Verify validate exits 0 on KeyboardInterrupt."""
-    with patch("asyncio.run", side_effect=KeyboardInterrupt):
+    with patch("asyncio.run", new=mock_run_keyboard_interrupt):
         result = runner.invoke(app, ["validate", "--server", "dummy"])
         assert result.exit_code == 0
 
@@ -761,7 +755,7 @@ def test_errors_command_database_exceptions(runner: CliRunner) -> None:
 
 def test_keyboard_interrupt_handlers(runner: CliRunner) -> None:
     """Verify that CLI commands exit cleanly on KeyboardInterrupt."""
-    with patch("asyncio.run", side_effect=KeyboardInterrupt):
+    with patch("asyncio.run", new=mock_run_keyboard_interrupt):
         for cmd in [
             ["list"],
             ["errors", "1"],
@@ -778,10 +772,27 @@ def test_keyboard_interrupt_handlers(runner: CliRunner) -> None:
 
 def test_doctor_command_edge_cases(runner: CliRunner) -> None:
     """Verify doctor command runs and outputs diagnostic info."""
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 0
-    # Check that at least Python version check runs
-    assert "Python version" in result.stdout
+    mock_conn = MagicMock()
+    # Mock SQLite schema check: select user_version
+    mock_conn.cursor.return_value.fetchone.return_value = (1,)
+
+    mock_stat = MagicMock()
+    mock_stat.st_mode = 0o600  # Happy permissions
+
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("mcp_debugger.cli.os.access", return_value=True),
+        patch("mcp_debugger.cli.os.stat", return_value=mock_stat),
+        patch("shutil.which", return_value="some-path"),
+        patch("sqlite3.connect", return_value=mock_conn),
+    ):
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 0
+        assert "Python version" in result.stdout
+        assert "Database directory" in result.stdout
+        assert "Database file" in result.stdout
+        assert "Database schema version" in result.stdout
+        assert "npx command found" in result.stdout
 
 
 def test_validate_no_session_or_server(runner: CliRunner) -> None:

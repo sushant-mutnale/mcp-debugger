@@ -182,6 +182,7 @@ class ReplayEngine:
                 messages=[],
             )
 
+        process: Optional[asyncio.subprocess.Process] = None
         # Launch target server
         try:
             process = await asyncio.create_subprocess_shell(
@@ -357,15 +358,41 @@ class ReplayEngine:
             reader_task.cancel()
             if stderr_task:
                 stderr_task.cancel()
-            try:
-                process.terminate()
-                await asyncio.wait_for(process.wait(), timeout=2.0)
-            except Exception:
+            if process is not None:
+                if process.stdin:
+                    try:
+                        process.stdin.close()
+                        if hasattr(process.stdin, "wait_closed"):
+                            await process.stdin.wait_closed()
+                    except Exception:
+                        pass
                 try:
-                    process.kill()
-                    await process.wait()
+                    process.terminate()
+                    await asyncio.wait_for(process.wait(), timeout=2.0)
                 except Exception:
+                    try:
+                        process.kill()
+                        await process.wait()
+                    except Exception:
+                        pass
+                if hasattr(process, "_transport") and process._transport:
+                    try:
+                        process._transport.close()
+                    except Exception:
+                        pass
+            try:
+                await reader_task
+            except asyncio.CancelledError:
+                pass
+            if stderr_task:
+                try:
+                    await stderr_task
+                except asyncio.CancelledError:
                     pass
+            process = None
+            import gc
+
+            gc.collect()
 
         ended_at = datetime.now(timezone.utc)
 

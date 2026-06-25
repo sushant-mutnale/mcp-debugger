@@ -209,11 +209,22 @@ async def run_live_validation(server_command: str) -> Tuple[int, List[Validation
         )
     finally:
         if process:
+            if process.stdin:
+                try:
+                    process.stdin.close()
+                    if hasattr(process.stdin, "wait_closed"):
+                        await process.stdin.wait_closed()
+                except Exception:
+                    pass
             try:
                 process.terminate()
                 await process.wait()
             except Exception:
                 pass
+            process = None
+            import gc
+
+            gc.collect()
 
     # Run session validator on the logged messages
     try:

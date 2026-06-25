@@ -287,6 +287,8 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
             if process.stdin:
                 try:
                     process.stdin.close()
+                    if hasattr(process.stdin, "wait_closed"):
+                        await process.stdin.wait_closed()
                 except Exception:
                     pass
 
@@ -304,6 +306,12 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
             except Exception:
                 try:
                     process.kill()
+                    await process.wait()
+                except Exception:
+                    pass
+            if hasattr(process, "_transport") and process._transport:
+                try:
+                    process._transport.close()
                 except Exception:
                     pass
 
@@ -312,6 +320,10 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
                     f"\n--- Subprocess Stderr Output ---\n{stderr_content.decode('utf-8', errors='replace')}\n---------------------------------\n"
                 )
                 sys.stderr.flush()
+            process = None
+            import gc
+
+            gc.collect()
 
         # Now, replay this session using the ReplayEngine
         engine = ReplayEngine(temp_db)
