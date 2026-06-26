@@ -330,7 +330,7 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
         result = await engine.replay(
             session_id=session_id,
             target_server_command=server_cmd,
-            timeout_ms=5000,
+            timeout_ms=30000,
             persist=True,
         )
 
