@@ -311,7 +311,7 @@ def test_doctor_permissions_and_schema_errors(runner: CliRunner) -> None:
     # 1. Database file check: exists but permissions check throws exception
     with (
         patch("mcp_debugger.cli._os_name", "posix"),
-        patch("mcp_debugger.cli.os.stat", side_effect=Exception("Stat error")),
+        patch("pathlib.Path.stat", side_effect=Exception("Stat error")),
         patch("mcp_debugger.cli.os.access", return_value=True),
         patch("shutil.which", return_value="some-path"),
         patch("pathlib.Path.exists", return_value=True),
@@ -324,7 +324,7 @@ def test_doctor_permissions_and_schema_errors(runner: CliRunner) -> None:
     mock_stat.st_mode = 0o777
     with (
         patch("mcp_debugger.cli._os_name", "posix"),
-        patch("mcp_debugger.cli.os.stat", return_value=mock_stat),
+        patch("pathlib.Path.stat", return_value=mock_stat),
         patch("mcp_debugger.cli.os.access", return_value=True),
         patch("shutil.which", return_value="some-path"),
         patch("pathlib.Path.exists", return_value=True),
