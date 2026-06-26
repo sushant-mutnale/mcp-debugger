@@ -41,8 +41,48 @@ class StdioProxy:
     async def _read_stdin_to_queue(
         self, queue: asyncio.Queue[Optional[str]], loop: asyncio.AbstractEventLoop
     ) -> None:
-        """Read lines from sys.stdin in a background thread and push them onto the async queue."""
+        """Read lines from sys.stdin asynchronously. Fallback to a background thread if not supported."""
+        import os
+        import io
+
+        use_async = True
+        if os.name == "nt":
+            # On Windows, connect_read_pipe fails on standard input handles because
+            # they are not opened with FILE_FLAG_OVERLAPPED. Always use thread fallback.
+            use_async = False
+
+        # Validate that sys.stdin has a real integer fileno (not MagicMock or StringIO)
+        if use_async:
+            try:
+                fileno = sys.stdin.fileno()
+                if not isinstance(fileno, int) or fileno < 0:
+                    use_async = False
+            except Exception:
+                use_async = False
+
+        if use_async:
+            try:
+                # Try connecting sys.stdin to the event loop (works on Unix, and Windows if stdin is a pipe)
+                reader = asyncio.StreamReader()
+                protocol = asyncio.StreamReaderProtocol(reader)
+                await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+
+                # Read from the async reader
+                while True:
+                    line_bytes = await reader.readline()
+                    if not line_bytes:  # EOF
+                        break
+                    line = line_bytes.decode("utf-8", errors="replace")
+                    queue.put_nowait(line)
+                queue.put_nowait(None)
+                return
+            except (ValueError, NotImplementedError, OSError, TypeError):
+                pass
+
+        # Fallback to threading (for Windows console / non-piped stdin / mock objects)
         import threading
+
+        logger.info("Asynchronous connect_read_pipe not supported for stdin; falling back to thread-based reader.")
 
         def blocking_read() -> None:
             while True:

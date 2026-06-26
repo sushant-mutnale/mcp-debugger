@@ -91,10 +91,19 @@ class Database:
         if self._flush_task and not self._flush_task.done():
             # Sentinel: None tells the loop to exit after draining
             await self._write_queue.put(None)
-            try:
-                await asyncio.wait_for(self._flush_task, timeout=5.0)
-            except asyncio.TimeoutError:
+
+            # Wait up to 5 seconds for the task to finish without using nested asyncio.wait_for
+            import time
+            start_wait = time.perf_counter()
+            while not self._flush_task.done() and (time.perf_counter() - start_wait) < 5.0:
+                await asyncio.sleep(0.05)
+
+            if not self._flush_task.done():
                 self._flush_task.cancel()
+                try:
+                    await self._flush_task
+                except (asyncio.CancelledError, TypeError):
+                    pass
         self._flush_task = None
         # Drain any remaining items synchronously
         await self._drain_queue()

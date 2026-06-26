@@ -801,7 +801,7 @@ def doctor() -> None:
         # Check permissions
         if _os_name != "nt":
             try:
-                mode = db_file_path.stat().st_mode & 0o777
+                mode = os.stat(db_file_path).st_mode & 0o777
                 if mode == 0o600:
                     lines.append(
                         Text.assemble(
