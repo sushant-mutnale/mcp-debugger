@@ -43,7 +43,6 @@ class StdioProxy:
     ) -> None:
         """Read lines from sys.stdin asynchronously. Fallback to a background thread if not supported."""
         import os
-        import io
 
         use_async = True
         if os.name == "nt":
