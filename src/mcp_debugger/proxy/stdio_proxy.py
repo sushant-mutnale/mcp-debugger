@@ -81,7 +81,9 @@ class StdioProxy:
         # Fallback to threading (for Windows console / non-piped stdin / mock objects)
         import threading
 
-        logger.info("Asynchronous connect_read_pipe not supported for stdin; falling back to thread-based reader.")
+        logger.info(
+            "Asynchronous connect_read_pipe not supported for stdin; falling back to thread-based reader."
+        )
 
         def blocking_read() -> None:
             while True:

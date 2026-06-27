@@ -94,6 +94,7 @@ class Database:
 
             # Wait up to 5 seconds for the task to finish without using nested asyncio.wait_for
             import time
+
             start_wait = time.perf_counter()
             while not self._flush_task.done() and (time.perf_counter() - start_wait) < 5.0:
                 await asyncio.sleep(0.05)
