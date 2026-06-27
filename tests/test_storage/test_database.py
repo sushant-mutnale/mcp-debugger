@@ -693,7 +693,8 @@ async def test_database_edge_cases(temp_db: Database, tmp_path) -> None:
         mock_task = MagicMock()
         mock_task.done.return_value = False
         db._flush_task = mock_task
-        with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+        perf_values = [0.0, 6.0]
+        with patch("time.perf_counter", side_effect=perf_values):
             await db.stop_flush_task()
             mock_task.cancel.assert_called_once()
 

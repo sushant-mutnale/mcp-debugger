@@ -307,11 +307,19 @@ def test_doctor_database_directories_and_permission_denied(runner: CliRunner) ->
 
 def test_doctor_permissions_and_schema_errors(runner: CliRunner) -> None:
     """Verify permissions too open warnings (Posix) and schema check failures."""
+    import os
+
+    orig_stat = os.stat
+
+    def mock_stat_err(path, *args, **kwargs):
+        if "sessions.db" in str(path):
+            raise Exception("Stat error")
+        return orig_stat(path, *args, **kwargs)
 
     # 1. Database file check: exists but permissions check throws exception
     with (
         patch("mcp_debugger.cli._os_name", "posix"),
-        patch("mcp_debugger.cli.os.stat", side_effect=Exception("Stat error")),
+        patch("mcp_debugger.cli.os.stat", side_effect=mock_stat_err),
         patch("mcp_debugger.cli.os.access", return_value=True),
         patch("shutil.which", return_value="some-path"),
         patch("pathlib.Path.exists", return_value=True),
@@ -320,11 +328,17 @@ def test_doctor_permissions_and_schema_errors(runner: CliRunner) -> None:
         assert "Failed to check DB file permissions" in result.stdout
 
     # 2. Database file check: exists but permission is not 600
-    mock_stat = MagicMock()
-    mock_stat.st_mode = 0o777
+    mock_stat_obj = MagicMock()
+    mock_stat_obj.st_mode = 0o777
+
+    def mock_stat_ok(path, *args, **kwargs):
+        if "sessions.db" in str(path):
+            return mock_stat_obj
+        return orig_stat(path, *args, **kwargs)
+
     with (
         patch("mcp_debugger.cli._os_name", "posix"),
-        patch("mcp_debugger.cli.os.stat", return_value=mock_stat),
+        patch("mcp_debugger.cli.os.stat", side_effect=mock_stat_ok),
         patch("mcp_debugger.cli.os.access", return_value=True),
         patch("shutil.which", return_value="some-path"),
         patch("pathlib.Path.exists", return_value=True),
@@ -1177,7 +1191,7 @@ def test_replay_command_extended_edge_cases(runner: CliRunner) -> None:
     # 1. Alias lookup failure (line 1786-1789)
     with patch("mcp_debugger.config.get_config") as mock_get_cfg:
         cfg = Config()
-        cfg.data = {"aliases": {"dev": "npx echo"}}
+        cfg._data = {"aliases": {"dev": "npx echo"}}
         mock_get_cfg.return_value = cfg
         result = runner.invoke(app, ["replay", "1", "--alias", "nonexistent"])
         assert result.exit_code == 1
@@ -1186,7 +1200,7 @@ def test_replay_command_extended_edge_cases(runner: CliRunner) -> None:
     # 2. No server specified error (line 1793-1796)
     with patch("mcp_debugger.config.get_config") as mock_get_cfg:
         cfg = Config()
-        cfg.data = {}  # empty config
+        cfg._data = {}  # empty config
         mock_get_cfg.return_value = cfg
         result = runner.invoke(app, ["replay", "1"])
         assert result.exit_code == 1

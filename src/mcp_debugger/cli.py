@@ -257,25 +257,27 @@ def proxy(
 
     async def _run() -> None:
         db = Database()
-        await db.connect()
+        try:
+            await db.connect()
 
-        # Create a new session
-        session_id = await db.create_session(server_command=server, friendly_name=name)
-        if session_id == -1:
-            print("[mcp-debugger error] Failed to create database session.", file=sys.stderr)
-            sys.exit(1)
+            # Create a new session
+            session_id = await db.create_session(server_command=server, friendly_name=name)
+            if session_id == -1:
+                print("[mcp-debugger error] Failed to create database session.", file=sys.stderr)
+                sys.exit(1)
 
-        proxy_engine = StdioProxy(
-            server_command=server,
-            database=db,
-            session_id=session_id,
-            verbose=verbose,
-        )
+            proxy_engine = StdioProxy(
+                server_command=server,
+                database=db,
+                session_id=session_id,
+                verbose=verbose,
+            )
 
-        # Run the proxy loop
-        exit_code = await proxy_engine.run()
-        await db.close()
-        sys.exit(exit_code)
+            # Run the proxy loop
+            exit_code = await proxy_engine.run()
+            sys.exit(exit_code)
+        finally:
+            await db.close()
 
     try:
         asyncio.run(_run())
@@ -302,71 +304,71 @@ def list_sessions(
     async def _run() -> None:
         db = Database()
         try:
-            await db.connect()
-            sessions = await db.get_sessions(limit=limit, status_filter=status)
-        except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
-            console.print(
-                f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
-            )
-            console.print(
-                "[yellow]Recovery Suggestion: Try deleting or renaming the file to reset the database.[/yellow]"
-            )
-            sys.exit(1)
-        except Exception as e:
-            console.print(f"[red]Error listing sessions: {e}[/red]")
-            sys.exit(1)
+            try:
+                await db.connect()
+                sessions = await db.get_sessions(limit=limit, status_filter=status)
+            except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
+                console.print(
+                    f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
+                )
+                console.print(
+                    "[yellow]Recovery Suggestion: Try deleting or renaming the file to reset the database.[/yellow]"
+                )
+                sys.exit(1)
+            except Exception as e:
+                console.print(f"[red]Error listing sessions: {e}[/red]")
+                sys.exit(1)
 
-        if not sessions:
+            if not sessions:
+                if json_mode:
+                    print("[]")
+                else:
+                    console.print("[yellow]No sessions found. Run mcp-debugger proxy first.[/yellow]")
+                return
+
             if json_mode:
-                print("[]")
+                json_sessions = []
+                for s in sessions:
+                    json_sessions.append(
+                        {
+                            "id": s["id"],
+                            "name": s["friendly_name"],
+                            "server_command": s["server_command"],
+                            "started_at": s["started_at"].replace(" ", "T") + "Z"
+                            if s["started_at"]
+                            else None,
+                            "ended_at": s["ended_at"].replace(" ", "T") + "Z"
+                            if s["ended_at"]
+                            else None,
+                            "status": s["status"],
+                            "message_count": s["total_messages"],
+                            "duration_seconds": s["duration_seconds"],
+                        }
+                    )
+                print(json.dumps(json_sessions, indent=2))
             else:
-                console.print("[yellow]No sessions found. Run mcp-debugger proxy first.[/yellow]")
+                table = Table(title="MCP Debugger Sessions", border_style="blue")
+                table.add_column("ID", justify="right", style="cyan")
+                table.add_column("Name", style="magenta")
+                table.add_column("Server Command", style="white")
+                table.add_column("Started At (Local)", style="white")
+                table.add_column("Duration", style="cyan")
+                table.add_column("Messages", justify="right", style="green")
+                table.add_column("Status", justify="center")
+
+                for s in sessions:
+                    table.add_row(
+                        str(s["id"]),
+                        s["friendly_name"] or "—",
+                        truncate_command(s["server_command"]),
+                        convert_utc_to_local_string(s["started_at"]),
+                        format_duration(s["duration_seconds"], s["status"]),
+                        str(s["total_messages"]),
+                        get_status_text(s["status"]),
+                    )
+                console.print(table)
+        finally:
             await db.close()
-            return
-
-        if json_mode:
-            json_sessions = []
-            for s in sessions:
-                json_sessions.append(
-                    {
-                        "id": s["id"],
-                        "name": s["friendly_name"],
-                        "server_command": s["server_command"],
-                        "started_at": s["started_at"].replace(" ", "T") + "Z"
-                        if s["started_at"]
-                        else None,
-                        "ended_at": s["ended_at"].replace(" ", "T") + "Z"
-                        if s["ended_at"]
-                        else None,
-                        "status": s["status"],
-                        "message_count": s["total_messages"],
-                        "duration_seconds": s["duration_seconds"],
-                    }
-                )
-            print(json.dumps(json_sessions, indent=2))
-        else:
-            table = Table(title="MCP Debugger Sessions", border_style="blue")
-            table.add_column("ID", justify="right", style="cyan")
-            table.add_column("Name", style="magenta")
-            table.add_column("Server Command", style="white")
-            table.add_column("Started At (Local)", style="white")
-            table.add_column("Duration", style="cyan")
-            table.add_column("Messages", justify="right", style="green")
-            table.add_column("Status", justify="center")
-
-            for s in sessions:
-                table.add_row(
-                    str(s["id"]),
-                    s["friendly_name"] or "—",
-                    truncate_command(s["server_command"]),
-                    convert_utc_to_local_string(s["started_at"]),
-                    format_duration(s["duration_seconds"], s["status"]),
-                    str(s["total_messages"]),
-                    get_status_text(s["status"]),
-                )
-            console.print(table)
-
-        await db.close()
 
     try:
         asyncio.run(_run())
@@ -440,194 +442,192 @@ def inspect(
     async def _run() -> None:
         db = Database()
         try:
-            await db.connect()
-            session = await db.get_session(session_id)
-        except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
-            console.print(
-                f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
-            )
-            console.print(
-                "[yellow]Recovery Suggestion: Try deleting or renaming the file to reset the database.[/yellow]"
-            )
-            sys.exit(1)
-        except Exception as e:
-            console.print(f"[red]Error connecting to database: {e}[/red]")
-            sys.exit(1)
-
-        if not session:
-            console.print(f"Session {session_id} not found")
-            await db.close()
-            sys.exit(1)
-
-        try:
-            messages = await db.get_messages(
-                session_id=session_id,
-                method=method,
-                direction=direction,
-                search=search,
-                limit=limit,
-                offset=offset,
-            )
             try:
-                errors = await db.get_errors(session_id)
-                error_map = {
-                    err["message_id"]: err for err in errors if err.get("message_id") is not None
-                }
-            except Exception:
-                error_map = {}
-        except Exception as e:
-            console.print(f"[red]Error fetching messages: {e}[/red]")
-            await db.close()
-            sys.exit(1)
+                await db.connect()
+                session = await db.get_session(session_id)
+            except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
+                console.print(
+                    f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
+                )
+                console.print(
+                    "[yellow]Recovery Suggestion: Try deleting or renaming the file to reset the database.[/yellow]"
+                )
+                sys.exit(1)
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
 
-        if not messages:
+            if not session:
+                console.print(f"Session {session_id} not found")
+                sys.exit(1)
+
+            try:
+                messages = await db.get_messages(
+                    session_id=session_id,
+                    method=method,
+                    direction=direction,
+                    search=search,
+                    limit=limit,
+                    offset=offset,
+                )
+                try:
+                    errors = await db.get_errors(session_id)
+                    error_map = {
+                        err["message_id"]: err for err in errors if err.get("message_id") is not None
+                    }
+                except Exception:
+                    error_map = {}
+            except Exception as e:
+                console.print(f"[red]Error fetching messages: {e}[/red]")
+                sys.exit(1)
+
+            if not messages:
+                if json_mode:
+                    output_str = "[]"
+                    if output:
+                        with open(output, "w", encoding="utf-8") as f:
+                            f.write(output_str + "\n")
+                    else:
+                        print(output_str)
+                else:
+                    if output:
+                        with open(output, "w", encoding="utf-8") as f:
+                            f.write("No messages\n")
+                    else:
+                        console.print("No messages")
+                return
+
             if json_mode:
-                output_str = "[]"
+                json_messages = []
+                for msg in messages:
+                    params_val = None
+                    if msg.get("params") is not None:
+                        try:
+                            params_val = json.loads(msg["params"])
+                        except Exception:
+                            params_val = msg["params"]
+
+                    result_val = None
+                    if msg.get("result") is not None:
+                        try:
+                            result_val = json.loads(msg["result"])
+                        except Exception:
+                            result_val = msg["result"]
+
+                    error_val = None
+                    if msg.get("error") is not None:
+                        try:
+                            error_val = json.loads(msg["error"])
+                        except Exception:
+                            error_val = msg["error"]
+
+                    timestamp_sec = msg["timestamp"] / 1000.0 if msg.get("timestamp") else None
+
+                    json_messages.append(
+                        {
+                            "id": msg["id"],
+                            "direction": msg["direction"],
+                            "method": msg["method"],
+                            "timestamp": timestamp_sec,
+                            "latency_ms": msg["latency_ms"],
+                            "params": params_val,
+                            "result": result_val,
+                            "error": error_val,
+                        }
+                    )
+                output_str = json.dumps(json_messages, indent=2)
                 if output:
                     with open(output, "w", encoding="utf-8") as f:
                         f.write(output_str + "\n")
                 else:
                     print(output_str)
             else:
+                panels = []
+                for msg in messages:
+                    envelope = rebuild_jsonrpc(msg)
+                    json_body = json.dumps(envelope, indent=2)
+                    syntax_body = Syntax(json_body, "json")
+
+                    err_info = error_map.get(msg.get("id"))
+                    if err_info is None:
+                        classifier = ErrorClassifier()
+                        classification = classifier.classify(envelope)
+                        if classification is not None:
+                            cat, msg_text, sug = classification
+                            err_info = {
+                                "error_type": cat,
+                                "error_message": msg_text,
+                                "suggestion": sug,
+                            }
+
+                    time_str = "unknown"
+                    if msg.get("timestamp") is not None:
+                        try:
+                            dt = datetime.fromtimestamp(msg["timestamp"] / 1000.0)
+                            time_str = dt.strftime("%H:%M:%S.%f")[:-3]
+                        except Exception:
+                            time_str = str(msg["timestamp"])
+
+                    direction_str = msg.get("direction")
+                    is_error = (msg.get("error") is not None) or (err_info is not None)
+
+                    header = Text()
+                    if direction_str == "client_to_server":
+                        header.append("➜ ", style="blue bold")
+                        header.append("client → server", style="blue")
+                        border_style = "blue"
+                    else:
+                        if is_error:
+                            header.append("◀ ", style="red bold")
+                            header.append("server → client", style="red")
+                            border_style = "red"
+                        else:
+                            header.append("◀ ", style="green bold")
+                            header.append("server → client", style="green")
+                            border_style = "green"
+
+                    if err_info is not None:
+                        err_type = err_info.get("error_type") or "unknown"
+                        badge = f" | [{err_type.upper()} ERROR]"
+                        header.append(badge, style="red bold")
+
+                    header.append(" | method: ", style="white")
+                    header.append(msg.get("method") or "unknown", style="yellow bold")
+                    header.append(" | ", style="white")
+                    header.append(time_str, style="grey50")
+
+                    if msg.get("message_type") == "response" and msg.get("latency_ms") is not None:
+                        latency = msg["latency_ms"]
+                        header.append(" | ", style="white")
+                        header.append(f"+{latency:.0f}ms", style="magenta bold")
+
+                    if err_info is not None and err_info.get("suggestion"):
+                        suggestion_text = Text(
+                            f"\n💡 Suggestion: {err_info['suggestion']}", style="yellow italic"
+                        )
+                        panel_content = Group(syntax_body, suggestion_text)
+                    else:
+                        panel_content = Group(syntax_body)
+
+                    panel = Panel(
+                        panel_content,
+                        title=header,
+                        title_align="left",
+                        border_style=border_style,
+                        safe_box=True,
+                    )
+                    panels.append(panel)
+
                 if output:
                     with open(output, "w", encoding="utf-8") as f:
-                        f.write("No messages\n")
+                        file_console = Console(file=f, force_terminal=False, color_system=None)
+                        for panel in panels:
+                            file_console.print(panel)
                 else:
-                    console.print("No messages")
-            await db.close()
-            return
-
-        if json_mode:
-            json_messages = []
-            for msg in messages:
-                params_val = None
-                if msg.get("params") is not None:
-                    try:
-                        params_val = json.loads(msg["params"])
-                    except Exception:
-                        params_val = msg["params"]
-
-                result_val = None
-                if msg.get("result") is not None:
-                    try:
-                        result_val = json.loads(msg["result"])
-                    except Exception:
-                        result_val = msg["result"]
-
-                error_val = None
-                if msg.get("error") is not None:
-                    try:
-                        error_val = json.loads(msg["error"])
-                    except Exception:
-                        error_val = msg["error"]
-
-                timestamp_sec = msg["timestamp"] / 1000.0 if msg.get("timestamp") else None
-
-                json_messages.append(
-                    {
-                        "id": msg["id"],
-                        "direction": msg["direction"],
-                        "method": msg["method"],
-                        "timestamp": timestamp_sec,
-                        "latency_ms": msg["latency_ms"],
-                        "params": params_val,
-                        "result": result_val,
-                        "error": error_val,
-                    }
-                )
-            output_str = json.dumps(json_messages, indent=2)
-            if output:
-                with open(output, "w", encoding="utf-8") as f:
-                    f.write(output_str + "\n")
-            else:
-                print(output_str)
-        else:
-            panels = []
-            for msg in messages:
-                envelope = rebuild_jsonrpc(msg)
-                json_body = json.dumps(envelope, indent=2)
-                syntax_body = Syntax(json_body, "json")
-
-                err_info = error_map.get(msg.get("id"))
-                if err_info is None:
-                    classifier = ErrorClassifier()
-                    classification = classifier.classify(envelope)
-                    if classification is not None:
-                        cat, msg_text, sug = classification
-                        err_info = {
-                            "error_type": cat,
-                            "error_message": msg_text,
-                            "suggestion": sug,
-                        }
-
-                time_str = "unknown"
-                if msg.get("timestamp") is not None:
-                    try:
-                        dt = datetime.fromtimestamp(msg["timestamp"] / 1000.0)
-                        time_str = dt.strftime("%H:%M:%S.%f")[:-3]
-                    except Exception:
-                        time_str = str(msg["timestamp"])
-
-                direction_str = msg.get("direction")
-                is_error = (msg.get("error") is not None) or (err_info is not None)
-
-                header = Text()
-                if direction_str == "client_to_server":
-                    header.append("➜ ", style="blue bold")
-                    header.append("client → server", style="blue")
-                    border_style = "blue"
-                else:
-                    if is_error:
-                        header.append("◀ ", style="red bold")
-                        header.append("server → client", style="red")
-                        border_style = "red"
-                    else:
-                        header.append("◀ ", style="green bold")
-                        header.append("server → client", style="green")
-                        border_style = "green"
-
-                if err_info is not None:
-                    err_type = err_info.get("error_type") or "unknown"
-                    badge = f" | [{err_type.upper()} ERROR]"
-                    header.append(badge, style="red bold")
-
-                header.append(" | method: ", style="white")
-                header.append(msg.get("method") or "unknown", style="yellow bold")
-                header.append(" | ", style="white")
-                header.append(time_str, style="grey50")
-
-                if msg.get("message_type") == "response" and msg.get("latency_ms") is not None:
-                    latency = msg["latency_ms"]
-                    header.append(" | ", style="white")
-                    header.append(f"+{latency:.0f}ms", style="magenta bold")
-
-                if err_info is not None and err_info.get("suggestion"):
-                    suggestion_text = Text(
-                        f"\n💡 Suggestion: {err_info['suggestion']}", style="yellow italic"
-                    )
-                    panel_content = Group(syntax_body, suggestion_text)
-                else:
-                    panel_content = Group(syntax_body)
-
-                panel = Panel(
-                    panel_content,
-                    title=header,
-                    title_align="left",
-                    border_style=border_style,
-                    safe_box=True,
-                )
-                panels.append(panel)
-
-            if output:
-                with open(output, "w", encoding="utf-8") as f:
-                    file_console = Console(file=f, force_terminal=False, color_system=None)
                     for panel in panels:
-                        file_console.print(panel)
-            else:
-                for panel in panels:
-                    console.print(panel)
-
-        await db.close()
+                        console.print(panel)
+        finally:
+            await db.close()
 
     try:
         asyncio.run(_run())
@@ -654,75 +654,74 @@ def list_errors(
     async def _run() -> None:
         db = Database()
         try:
-            await db.connect()
-            session = await db.get_session(session_id)
-        except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
-            console.print(
-                f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
-            )
-            sys.exit(1)
-        except Exception as e:
-            console.print(f"[red]Error connecting to database: {e}[/red]")
-            sys.exit(1)
-
-        if not session:
-            console.print(f"Session {session_id} not found")
-            await db.close()
-            sys.exit(1)
-
-        try:
-            errors = await db.get_errors(session_id)
-        except Exception as e:
-            console.print(f"[red]Error fetching errors: {e}[/red]")
-            await db.close()
-            sys.exit(1)
-
-        # If category is provided, filter the errors list
-        if category:
-            cat_lower = category.lower().strip()
-            errors = [e for e in errors if e.get("error_type", "").lower() == cat_lower]
-
-        if json_mode:
-            # Format errors list to standard JSON format
-            json_errors = []
-            for err in errors:
-                json_errors.append(
-                    {
-                        "id": err["id"],
-                        "message_id": err["message_id"],
-                        "error_code": err["error_code"],
-                        "error_type": err["error_type"],
-                        "error_message": err["error_message"],
-                        "suggestion": err["suggestion"],
-                        "stack_trace": err["stack_trace"],
-                        "classified_at": err["classified_at"],
-                    }
-                )
-            print(json.dumps(json_errors, indent=2))
-        else:
-            if not errors:
+            try:
+                await db.connect()
+                session = await db.get_session(session_id)
+            except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
                 console.print(
-                    f"[yellow]No classified errors found for session {session_id}[/yellow]"
+                    f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
                 )
-            else:
-                table = Table(
-                    title=f"Classified Errors for Session {session_id}", border_style="red"
-                )
-                table.add_column("ID", justify="right", style="cyan")
-                table.add_column("Type", style="magenta bold")
-                table.add_column("Message", style="white")
-                table.add_column("Suggestion", style="yellow italic")
+                sys.exit(1)
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
 
+            if not session:
+                console.print(f"Session {session_id} not found")
+                sys.exit(1)
+
+            try:
+                errors = await db.get_errors(session_id)
+            except Exception as e:
+                console.print(f"[red]Error fetching errors: {e}[/red]")
+                sys.exit(1)
+
+            # If category is provided, filter the errors list
+            if category:
+                cat_lower = category.lower().strip()
+                errors = [e for e in errors if e.get("error_type", "").lower() == cat_lower]
+
+            if json_mode:
+                # Format errors list to standard JSON format
+                json_errors = []
                 for err in errors:
-                    table.add_row(
-                        str(err["id"]),
-                        str(err["error_type"]).upper(),
-                        str(err["error_message"]),
-                        str(err["suggestion"] or "—"),
+                    json_errors.append(
+                        {
+                            "id": err["id"],
+                            "message_id": err["message_id"],
+                            "error_code": err["error_code"],
+                            "error_type": err["error_type"],
+                            "error_message": err["error_message"],
+                            "suggestion": err["suggestion"],
+                            "stack_trace": err["stack_trace"],
+                            "classified_at": err["classified_at"],
+                        }
                     )
-                console.print(table)
+                print(json.dumps(json_errors, indent=2))
+            else:
+                if not errors:
+                    console.print(
+                        f"[yellow]No classified errors found for session {session_id}[/yellow]"
+                    )
+                else:
+                    table = Table(
+                        title=f"Classified Errors for Session {session_id}", border_style="red"
+                    )
+                    table.add_column("ID", justify="right", style="cyan")
+                    table.add_column("Type", style="magenta bold")
+                    table.add_column("Message", style="white")
+                    table.add_column("Suggestion", style="yellow italic")
 
-        await db.close()
+                    for err in errors:
+                        table.add_row(
+                            str(err["id"]),
+                            str(err["error_type"]).upper(),
+                            str(err["error_message"]),
+                            str(err["suggestion"] or "—"),
+                        )
+                    console.print(table)
+        finally:
+            await db.close()
 
     try:
         asyncio.run(_run())
@@ -1020,27 +1019,26 @@ def validate(
 
             db = Database()
             try:
-                await db.connect()
-                session = await db.get_session(session_id)
-            except Exception as e:
-                console.print(f"[red]Error connecting to database: {e}[/red]")
-                sys.exit(1)
+                try:
+                    await db.connect()
+                    session = await db.get_session(session_id)
+                except Exception as e:
+                    console.print(f"[red]Error connecting to database: {e}[/red]")
+                    sys.exit(1)
 
-            if not session:
-                console.print(f"[red]Error: Session #{session_id} not found.[/red]")
-                await db.close()
-                sys.exit(1)
+                if not session:
+                    console.print(f"[red]Error: Session #{session_id} not found.[/red]")
+                    sys.exit(1)
 
-            if not json_mode:
-                console.print(f"🔍 Validating recorded session #{session_id}")
+                if not json_mode:
+                    console.print(f"🔍 Validating recorded session #{session_id}")
 
-            try:
-                validator = ProtocolValidator()
-                results = await validator.validate_session(session_id, db)
-            except Exception as e:
-                console.print(f"[red]Error validating session: {e}[/red]")
-                await db.close()
-                sys.exit(1)
+                try:
+                    validator = ProtocolValidator()
+                    results = await validator.validate_session(session_id, db)
+                except Exception as e:
+                    console.print(f"[red]Error validating session: {e}[/red]")
+                    sys.exit(1)
             finally:
                 await db.close()
 
@@ -1133,110 +1131,106 @@ def tools(
     async def _run() -> None:
         db = Database()
         try:
-            await db.connect()
-            session = await db.get_session(session_id)
-        except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
-            console.print(
-                f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
-            )
-            console.print(
-                "[yellow]Recovery Suggestion: Try deleting or renaming the file to reset the database.[/yellow]"
-            )
-            sys.exit(1)
-        except Exception as e:
-            console.print(f"[red]Error connecting to database: {e}[/red]")
-            sys.exit(1)
+            try:
+                await db.connect()
+                session = await db.get_session(session_id)
+            except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
+                console.print(
+                    f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
+                )
+                console.print(
+                    "[yellow]Recovery Suggestion: Try deleting or renaming the file to reset the database.[/yellow]"
+                )
+                sys.exit(1)
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
 
-        if not session:
-            console.print(f"Session {session_id} not found")
-            await db.close()
-            sys.exit(1)
-
-        try:
-            tools_list = await db.get_tools(session_id)
-        except Exception as e:
-            console.print(f"[red]Error fetching tools: {e}[/red]")
-            await db.close()
-            sys.exit(1)
-
-        if not tools_list:
-            if json_mode:
-                print("[]")
-            else:
-                console.print("No tools discovered in this session")
-            await db.close()
-            sys.exit(1)
-
-        # If detailed view requested for a specific tool
-        if detail:
-            target_tool = next((t for t in tools_list if t["name"] == detail), None)
-            if not target_tool:
-                console.print(f"Tool {detail} not found in this session")
-                await db.close()
+            if not session:
+                console.print(f"Session {session_id} not found")
                 sys.exit(1)
 
             try:
-                schema_dict = json.loads(target_tool["input_schema"])
-            except Exception:
-                schema_dict = target_tool["input_schema"]
+                tools_list = await db.get_tools(session_id)
+            except Exception as e:
+                console.print(f"[red]Error fetching tools: {e}[/red]")
+                sys.exit(1)
+
+            if not tools_list:
+                if json_mode:
+                    print("[]")
+                else:
+                    console.print("No tools discovered in this session")
+                sys.exit(1)
+
+            # If detailed view requested for a specific tool
+            if detail:
+                target_tool = next((t for t in tools_list if t["name"] == detail), None)
+                if not target_tool:
+                    console.print(f"Tool {detail} not found in this session")
+                    sys.exit(1)
+
+                try:
+                    schema_dict = json.loads(target_tool["input_schema"])
+                except Exception:
+                    schema_dict = target_tool["input_schema"]
+
+                if json_mode:
+                    print(json.dumps(schema_dict, indent=2))
+                else:
+                    syntax_schema = Syntax(json.dumps(schema_dict, indent=2), "json")
+                    console.print(
+                        Panel(
+                            syntax_schema,
+                            title=f"🔧 Tool Schema: {detail}",
+                            title_align="left",
+                            border_style="magenta",
+                            safe_box=True,
+                        )
+                    )
+                return
+
+            # Fetch usage counts
+            tools_with_calls = []
+            for t in tools_list:
+                calls_count = await db.get_tool_usage_count(session_id, t["name"])
+                try:
+                    schema_dict = json.loads(t["input_schema"])
+                except Exception:
+                    schema_dict = t["input_schema"]
+
+                tools_with_calls.append(
+                    {
+                        "name": t["name"],
+                        "description": t["description"],
+                        "input_schema": schema_dict,
+                        "calls": calls_count,
+                    }
+                )
 
             if json_mode:
-                print(json.dumps(schema_dict, indent=2))
+                print(json.dumps(tools_with_calls, indent=2))
             else:
-                syntax_schema = Syntax(json.dumps(schema_dict, indent=2), "json")
-                console.print(
-                    Panel(
-                        syntax_schema,
-                        title=f"🔧 Tool Schema: {detail}",
-                        title_align="left",
-                        border_style="magenta",
-                        safe_box=True,
+                session_name_part = (
+                    f" ({session['friendly_name']})" if session.get("friendly_name") else ""
+                )
+                table = Table(
+                    title=f"Tools discovered in session #{session_id}{session_name_part}",
+                    border_style="magenta",
+                )
+                table.add_column("Name", style="cyan bold")
+                table.add_column("Description", style="white")
+                table.add_column("Calls", justify="right", style="green")
+
+                for tc in tools_with_calls:
+                    table.add_row(
+                        str(tc["name"]),
+                        str(tc["description"] or "—"),
+                        str(tc["calls"]),
                     )
-                )
+                console.print(table)
+        finally:
             await db.close()
-            return
-
-        # Fetch usage counts
-        tools_with_calls = []
-        for t in tools_list:
-            calls_count = await db.get_tool_usage_count(session_id, t["name"])
-            try:
-                schema_dict = json.loads(t["input_schema"])
-            except Exception:
-                schema_dict = t["input_schema"]
-
-            tools_with_calls.append(
-                {
-                    "name": t["name"],
-                    "description": t["description"],
-                    "input_schema": schema_dict,
-                    "calls": calls_count,
-                }
-            )
-
-        if json_mode:
-            print(json.dumps(tools_with_calls, indent=2))
-        else:
-            session_name_part = (
-                f" ({session['friendly_name']})" if session.get("friendly_name") else ""
-            )
-            table = Table(
-                title=f"Tools discovered in session #{session_id}{session_name_part}",
-                border_style="magenta",
-            )
-            table.add_column("Name", style="cyan bold")
-            table.add_column("Description", style="white")
-            table.add_column("Calls", justify="right", style="green")
-
-            for tc in tools_with_calls:
-                table.add_row(
-                    str(tc["name"]),
-                    str(tc["description"] or "—"),
-                    str(tc["calls"]),
-                )
-            console.print(table)
-
-        await db.close()
 
     try:
         asyncio.run(_run())
@@ -1332,23 +1326,22 @@ def stats(
     async def _run() -> None:
         db = Database()
         try:
-            await db.connect()
-        except Exception as e:
-            console.print(f"[red]Error connecting to database: {e}[/red]")
-            sys.exit(1)
+            try:
+                await db.connect()
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
 
-        try:
-            stats_data = await aggregate_session_stats(db, session_id)
-        except ValueError as e:
-            console.print(f"[red]Error: {e}[/red]")
+            try:
+                stats_data = await aggregate_session_stats(db, session_id)
+            except ValueError as e:
+                console.print(f"[red]Error: {e}[/red]")
+                sys.exit(1)
+            except Exception as e:
+                console.print(f"[red]Error aggregating statistics: {e}[/red]")
+                sys.exit(1)
+        finally:
             await db.close()
-            sys.exit(1)
-        except Exception as e:
-            console.print(f"[red]Error aggregating statistics: {e}[/red]")
-            await db.close()
-            sys.exit(1)
-
-        await db.close()
 
         # Handle --json mode
         if json_mode:
@@ -1500,24 +1493,23 @@ def compare(
     async def _run() -> None:
         db = Database()
         try:
-            await db.connect()
-        except Exception as e:
-            console.print(f"[red]Error connecting to database: {e}[/red]")
-            sys.exit(1)
+            try:
+                await db.connect()
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
 
-        try:
-            stats_a = await aggregate_session_stats(db, session_id_a)
-            stats_b = await aggregate_session_stats(db, session_id_b)
-        except ValueError as e:
-            console.print(f"[red]Error: {e}[/red]")
+            try:
+                stats_a = await aggregate_session_stats(db, session_id_a)
+                stats_b = await aggregate_session_stats(db, session_id_b)
+            except ValueError as e:
+                console.print(f"[red]Error: {e}[/red]")
+                sys.exit(1)
+            except Exception as e:
+                console.print(f"[red]Error aggregating session statistics: {e}[/red]")
+                sys.exit(1)
+        finally:
             await db.close()
-            sys.exit(1)
-        except Exception as e:
-            console.print(f"[red]Error aggregating session statistics: {e}[/red]")
-            await db.close()
-            sys.exit(1)
-
-        await db.close()
 
         comparison = compare_sessions_stats(stats_a, stats_b)
 
@@ -1727,31 +1719,30 @@ def export(
     async def _run() -> None:
         db = Database()
         try:
-            await db.connect()
-        except Exception as e:
-            console.print(f"[red]Error connecting to database: {e}[/red]")
-            sys.exit(1)
+            try:
+                await db.connect()
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
 
-        session = await db.get_session(session_id)
-        if not session:
-            console.print(f"[red]Error: Session #{session_id} not found.[/red]")
+            session = await db.get_session(session_id)
+            if not session:
+                console.print(f"[red]Error: Session #{session_id} not found.[/red]")
+                sys.exit(1)
+
+            messages = await db.get_messages(session_id, limit=limit)
+            tools = await db.get_tools(session_id)
+            errors = await db.get_errors(session_id)
+
+            try:
+                from mcp_debugger.analytics import aggregate_session_stats as _agg
+
+                stats = await _agg(db, session_id)
+            except Exception as e:
+                console.print(f"[red]Error computing session stats: {e}[/red]")
+                sys.exit(1)
+        finally:
             await db.close()
-            sys.exit(1)
-
-        messages = await db.get_messages(session_id, limit=limit)
-        tools = await db.get_tools(session_id)
-        errors = await db.get_errors(session_id)
-
-        try:
-            from mcp_debugger.analytics import aggregate_session_stats as _agg
-
-            stats = await _agg(db, session_id)
-        except Exception as e:
-            console.print(f"[red]Error computing session stats: {e}[/red]")
-            await db.close()
-            sys.exit(1)
-
-        await db.close()
 
         # ---- OTLP -----------------------------------------------------------
         if fmt == "otlp":
@@ -1903,64 +1894,64 @@ def replay(
     async def _run() -> None:
         db = Database()
         try:
-            await db.connect()
-        except Exception as e:
-            console.print(f"[red]Error connecting to database: {e}[/red]")
-            sys.exit(1)
+            try:
+                await db.connect()
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
 
-        session = await db.get_session(session_id)
-        if not session:
-            console.print(f"[red]Error: Session #{session_id} not found.[/red]")
-            await db.close()
-            sys.exit(1)
+            session = await db.get_session(session_id)
+            if not session:
+                console.print(f"[red]Error: Session #{session_id} not found.[/red]")
+                sys.exit(1)
 
-        from mcp_debugger.replay.engine import ReplayEngine
+            from mcp_debugger.replay.engine import ReplayEngine
 
-        engine = ReplayEngine(db)
+            engine = ReplayEngine(db)
 
-        # Set up progress bar if not in JSON mode and output is terminal
-        progress_bar = None
-        task_id = None
+            # Set up progress bar if not in JSON mode and output is terminal
+            progress_bar = None
+            task_id = None
 
-        if not json_mode:
-            from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
+            if not json_mode:
+                from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 
-            progress_bar = Progress(
-                TextColumn(f"Replaying session {session_id}..."),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total} ({task.percentage:>3.0f}%)"),
-                TimeElapsedColumn(),
-                console=console,
+                progress_bar = Progress(
+                    TextColumn(f"Replaying session {session_id}..."),
+                    BarColumn(),
+                    TextColumn("{task.completed}/{task.total} ({task.percentage:>3.0f}%)"),
+                    TimeElapsedColumn(),
+                    console=console,
+                )
+                progress_bar.start()
+                task_id = progress_bar.add_task("replaying", total=0)
+
+            def on_message_replayed(current: int, total: int) -> None:
+                if progress_bar and task_id is not None:
+                    progress_bar.update(task_id, completed=current, total=total)
+
+            # Replay the messages
+            replay_mode = "exact"
+            message_filter = None
+            if filter_method:
+                replay_mode = "selective"
+                message_filter = [filter_method]
+
+            result = await engine.replay(
+                session_id=session_id,
+                target_server_command=effective_server,
+                timeout_ms=effective_timeout,
+                replay_mode=replay_mode,
+                message_filter=message_filter,
+                persist=effective_save,
+                max_messages=max_messages,
+                on_message_replayed=on_message_replayed,
             )
-            progress_bar.start()
-            task_id = progress_bar.add_task("replaying", total=0)
 
-        def on_message_replayed(current: int, total: int) -> None:
-            if progress_bar and task_id is not None:
-                progress_bar.update(task_id, completed=current, total=total)
-
-        # Replay the messages
-        replay_mode = "exact"
-        message_filter = None
-        if filter_method:
-            replay_mode = "selective"
-            message_filter = [filter_method]
-
-        result = await engine.replay(
-            session_id=session_id,
-            target_server_command=effective_server,
-            timeout_ms=effective_timeout,
-            replay_mode=replay_mode,
-            message_filter=message_filter,
-            persist=effective_save,
-            max_messages=max_messages,
-            on_message_replayed=on_message_replayed,
-        )
-
-        if progress_bar:
-            progress_bar.stop()
-
-        await db.close()
+            if progress_bar:
+                progress_bar.stop()
+        finally:
+            await db.close()
 
         # Check for target server failed to start (command not found / invalid command)
         failed_to_start = False

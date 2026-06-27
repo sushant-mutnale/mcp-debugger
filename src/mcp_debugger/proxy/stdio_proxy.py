@@ -62,7 +62,8 @@ class StdioProxy:
         if use_async:
             try:
                 # Try connecting sys.stdin to the event loop (works on Unix, and Windows if stdin is a pipe)
-                reader = asyncio.StreamReader()
+                # Increase StreamReader limit to 10MB to handle large client messages
+                reader = asyncio.StreamReader(limit=10 * 1024 * 1024)
                 protocol = asyncio.StreamReaderProtocol(reader)
                 await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
