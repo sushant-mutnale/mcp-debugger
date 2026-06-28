@@ -323,7 +323,9 @@ def list_sessions(
                 if json_mode:
                     print("[]")
                 else:
-                    console.print("[yellow]No sessions found. Run mcp-debugger proxy first.[/yellow]")
+                    console.print(
+                        "[yellow]No sessions found. Run mcp-debugger proxy first.[/yellow]"
+                    )
                 return
 
             if json_mode:
@@ -473,7 +475,9 @@ def inspect(
                 try:
                     errors = await db.get_errors(session_id)
                     error_map = {
-                        err["message_id"]: err for err in errors if err.get("message_id") is not None
+                        err["message_id"]: err
+                        for err in errors
+                        if err.get("message_id") is not None
                     }
                 except Exception:
                     error_map = {}
