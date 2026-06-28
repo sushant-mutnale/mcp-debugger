@@ -1,194 +1,362 @@
-Day 22: Comprehensive Test Suite – Ensuring Rock‑Solid Reliability
-You’ve built all the features and hardened performance (Day 21). Now you need confidence that every change won’t break existing functionality. A comprehensive test suite is the safety net that allows you to refactor, add features, and fix bugs without fear.
+Day 23: Documentation & README – Making Your Project Shine
+You have a fully functional, tested, and performance‑hardened tool. But if nobody knows how to use it, or if the documentation is confusing, adoption will suffer. Day 23 is about polishing the user experience through comprehensive documentation.
 
-By the end of Day 22, mcp-debugger will have:
+By the end of Day 23, your project will have:
 
-Unit tests for every module (target >90% coverage).
+A beautiful README.md with clear installation, quickstart, and feature overview.
 
-Integration tests for end‑to‑end workflows (proxy → DB → inspect → replay → export).
+Detailed command reference with examples for every command.
 
-Property‑based tests using hypothesis to catch edge cases in message parsing and validation.
+Architecture documentation explaining how it works (for contributors).
 
-Stress tests that push the tool to its limits (10k messages, large payloads, concurrent sessions).
+Tutorials for common workflows (debugging a server, regression testing, CI integration).
 
-Coverage reporting in CI to prevent regression.
+FAQ covering common questions and troubleshooting.
 
-This transforms your codebase from “works for me” to “works for everyone”.
+This documentation is what turns casual visitors into users and contributors.
 
 🎯 Core Objective
-Build a comprehensive test suite across four layers:
+Create a complete documentation suite across these layers:
 
-Layer Purpose Tools
-Unit tests Test individual functions/classes in isolation pytest, pytest-asyncio, mocking (unittest.mock or pytest-mock)
-Integration tests Test end‑to‑end workflows with real (or mocked) servers pytest-asyncio, temporary DBs, real MCP servers (filesystem)
-Property‑based tests Verify invariants (e.g., any valid MCP message round‑trips through models) hypothesis, hypothesis-jsonschema (for generating valid JSON‑RPC)
-Stress tests Test performance and memory under load pytest-benchmark, memory-profiler, custom scripts
+Layer Purpose Audience
+README.md First impression, installation, quickstart All visitors
+User Guide Full command reference, workflows, examples End users
+Architecture Guide Design decisions, module overview, data flow Contributors
+API Reference If applicable (not needed for MVP) Developers integrating with your tool
+Troubleshooting Common issues and solutions All users
+Changelog Version history, breaking changes Users upgrading
 Deliverables by end of day:
 
-pytest --cov shows >90% coverage across all modules.
+A polished README.md with badges, screenshots, and clear structure.
 
-All tests pass in CI (GitHub Actions) on every push.
+docs/ directory with at least 6 files (see below).
 
-A tests/ directory with well‑organized test files (mirroring src/ structure).
+All existing documentation reviewed and updated.
 
-Documentation on how to run tests (docs/contributing.md).
+A demo GIF or video (optional but highly recommended).
 
 🧠 Expected Behaviour
 
-1. Test Organisation
-   Mirror the src/ directory structure:
+1. README.md Structure
+   A compelling README is critical. Follow this structure:
+
+markdown
+
+# mcp-debugger
+
+> Transparent proxy to debug, record, validate, and replay MCP (Model Context Protocol) sessions.
+
+[![PyPI version](https://badge.fury.io/py/mcp-debugger.svg)](https://badge.fury.io/py/mcp-debugger)
+[![Python versions](https://img.shields.io/pypi/pyversions/mcp-debugger.svg)](https://pypi.org/project/mcp-debugger/)
+[![Tests](https://github.com/yourusername/mcp-debugger/actions/workflows/test.yml/badge.svg)](https://github.com/yourusername/mcp-debugger/actions)
+[![Coverage](https://codecov.io/gh/yourusername/mcp-debugger/branch/main/graph/badge.svg)](https://codecov.io/gh/yourusername/mcp-debugger)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## ✨ Features
+
+- 🔍 **Record** – Capture every JSON‑RPC message between MCP client and server
+- 📊 **Inspect** – Beautiful terminal UI with syntax‑highlighted messages
+- ✅ **Validate** – Check MCP protocol compliance (handshake, methods, schemas)
+- 🔄 **Replay** – Regression test server changes by replaying sessions
+- 📈 **Stats** – See tool usage, latency trends, error rates
+- 📤 **Export** – JSON, Markdown, or OpenTelemetry (OTLP) traces
+- 🚀 **Local‑first** – No cloud, no signup, all data stays on your machine
+
+## 📦 Installation
+
+````bash
+pip install mcp-debugger
+Or with optional OTLP support:
+
+bash
+pip install mcp-debugger[otlp]
+🚀 Quickstart
+1. Record a session
+bash
+mcp-debugger proxy --server "npx -y @modelcontextprotocol/server-filesystem /tmp" --name "my-test"
+2. List recorded sessions
+bash
+mcp-debugger list
+3. Inspect a session
+bash
+mcp-debugger inspect 42
+4. Validate a server
+bash
+mcp-debugger validate --server "npx -y @modelcontextprotocol/server-filesystem /tmp"
+5. Replay a session
+bash
+mcp-debugger replay 42 --server "npx -y @modelcontextprotocol/server-filesystem /tmp"
+📖 Documentation
+Commands Reference
+
+Architecture Overview
+
+Tutorials
+
+FAQ
+
+Contributing
+
+🧪 Running Tests
+bash
+git clone https://github.com/yourusername/mcp-debugger.git
+cd mcp-debugger
+pip install -e .[dev,test]
+pytest
+🤝 Contributing
+See CONTRIBUTING.md.
+
+📄 License
+MIT © Your Name
 
 text
-tests/
-├── conftest.py # Shared fixtures (DB, temp dirs, mock servers)
-├── test_cli/
-│ ├── test_proxy.py
-│ ├── test_list.py
-│ ├── test_inspect.py
-│ ├── test_validate.py
-│ ├── test_stats.py
-│ ├── test_export.py
-│ └── test_replay.py
-├── test_protocol/
-│ ├── test_schemas.py
-│ ├── test_validator.py
-│ └── test_error_classifier.py
-├── test_proxy/
-│ └── test_stdio_proxy.py
-├── test_storage/
-│ └── test_database.py
-├── test_replay/
-│ ├── test_engine.py
-│ └── test_diff.py
-├── test_exporters/
-│ ├── test_json.py
-│ ├── test_markdown.py
-│ └── test_otlp.py
-├── test_config.py
-├── test_integration.py # End‑to‑end workflows
-├── test_stress.py # Performance benchmarks
-└── test_property.py # Hypothesis‑based property tests 2. Unit Tests
-Goal: >90% line coverage.
 
-Mocking: Use pytest-mock to mock database, subprocess, file I/O, network calls (OTLP).
+**Add a demo GIF/screenshot** – use `asciinema` or `terminalizer` to record a 30‑second demo.
 
-Parametrize: Use @pytest.mark.parametrize to test many inputs.
+#### 2. User Guide (`docs/commands.md`)
 
-Example coverage targets:
+Create a comprehensive reference for every command:
 
-Module Target Key areas
-protocol/schemas.py 100% All Pydantic models, validators, helper functions.
-protocol/validator.py 95% All validation rules (handshake, method names, schemas).
-protocol/error_classifier.py 100% All error codes and categories.
-storage/database.py 90% All CRUD methods, error handling, transactions.
-proxy/stdio_proxy.py 85% Subprocess lifecycle, I/O forwarding, signal handling.
-replay/engine.py 90% Replay loop, timeout handling, diff integration.
-cli/\*.py 80% Command parsing, flag handling, output generation (hard to test fully).
-config.py 95% Load/save/get/set, validation. 3. Integration Tests
-Goal: Test the entire pipeline: proxy → inspect → stats → export → replay.
+```markdown
+# Command Reference
 
-Approach: Use a temporary directory, a mock or real MCP server (filesystem), and a test‑specific database.
+## `mcp-debugger proxy`
 
-Test sequence:
+Record an MCP session.
 
-Start proxy with a mock server that responds to initialize, tools/list, and a few tools/call.
-Send a predefined sequence of messages via stdin.
-Stop proxy, verify DB contains correct session, messages, tools.
-Run inspect on the session (compare output snapshot or query DB).
-Run stats and verify aggregate counts.
-Run export to JSON and validate structure.
-Run replay against the same server and verify 100% match.
-Run replay against a different server (or a modified version) and verify mismatches are detected.
-Tools: subprocess or asyncio.create_subprocess_exec to run the CLI commands as a child process, or call the internal functions directly (more stable).
+**Usage:**
+```bash
+mcp-debugger proxy --server <command> [OPTIONS]
+Options:
 
-4. Property‑Based Tests (Hypothesis)
-   Goal: Verify invariants that should hold for all valid inputs.
+Option	Type	Default	Description
+--server, -s	str	required	Command to launch the MCP server
+--name, -n	str	None	Friendly name for the session
+--timeout	int	5000	Timeout in ms for server responses
+--verbose, -v	flag	False	Show verbose output
+--output	path	None	Save session to a specific DB file (for testing)
+Example:
 
-Examples:
+bash
+mcp-debugger proxy --server "npx -y @modelcontextprotocol/server-filesystem /tmp" --name "testing-fs"
+mcp-debugger list
+Show all recorded sessions.
 
-Any valid JSON‑RPC request parsed by schemas.JSONRPCRequest can be serialized back to JSON and re‑parsed identically.
+Usage:
 
-ProtocolValidator.validate_message() never raises an exception; always returns a list of ValidationResult.
+bash
+mcp-debugger list [OPTIONS]
+Options:
 
-Database.log_message() and Database.get_messages() are consistent (inserted message can be retrieved).
+Option	Type	Default	Description
+--limit	int	20	Maximum number of sessions to show
+--status	str	None	Filter by status (running/completed/error)
+--json	flag	False	Output as JSON
+... (continue for all commands)
 
-compare_json() is symmetric: compare(a, b) == compare(b, a) (ignoring order).
+text
 
-Strategy: Use hypothesis strategies to generate valid JSON‑RPC messages (based on MCP spec) and arbitrary JSON values. Then run tests on thousands of random inputs.
+#### 3. Architecture Guide (`docs/architecture.md`)
 
-5. Stress Tests
-   Goal: Ensure the tool handles realistic workloads without memory leaks or timeout.
+Explain how the tool works (for contributors):
 
-Scenarios:
+```markdown
+# Architecture Overview
 
-Large session: Generate 10,000 messages (random method, params, latency) and insert into DB via proxy. Measure time (< 2 seconds? < 5? acceptable).
+## High‑Level Design
 
-Large replay: Replay that session against a mock server that responds instantly. Measure time.
+mcp-debugger is built around a **stdio proxy** that sits between an MCP client and server.
+[Client] <--stdin/stdout--> [Proxy] <--stdin/stdout--> [Server]
+|
+v
+[SQLite DB]
 
-Concurrent proxies: Run two proxies simultaneously against different servers (or same server but different sessions) – no database corruption.
+text
 
-Large messages: Send a 50MB JSON message; ensure proxy doesn't crash (may be slow, but should not explode).
+## Components
 
-Tools: pytest-benchmark for timing, memory-profiler for memory tracking, pytest-xdist for concurrent test runs.
+### 1. Proxy (`src/mcp_debugger/proxy/`)
+- Uses `asyncio.subprocess` to launch the server.
+- Forwards messages bidirectionally.
+- Logs every message to SQLite.
 
+### 2. Storage (`src/mcp_debugger/storage/`)
+- SQLite database with tables: `sessions`, `messages`, `tools`, `errors`.
+- `aiosqlite` for async‑safe database operations.
+
+### 3. Protocol (`src/mcp_debugger/protocol/`)
+- Pydantic models for JSON‑RPC 2.0 and MCP types.
+- Validator for protocol compliance (handshake, methods, schemas).
+- Error classifier for categorising failures.
+
+### 4. Replay (`src/mcp_debugger/replay/`)
+- Loads client messages from a recorded session.
+- Re‑sends them to a new server.
+- Compares responses and generates diffs.
+
+### 5. Exporters (`src/mcp_debugger/exporters/`)
+- JSON, Markdown, and OpenTelemetry (OTLP) exporters.
+
+... (continue with data flow diagrams and sequence diagrams)
+4. Tutorials (docs/tutorials.md)
+Step‑by‑step guides for common workflows:
+
+markdown
+# Tutorials
+
+## Debugging a New MCP Server
+
+1. Record a session with your server:
+   ```bash
+   mcp-debugger proxy --server "python my_server.py" --name "server-debug"
+Interact with your server as normal (via Claude Desktop, etc.).
+
+Stop the proxy (Ctrl+C) and inspect the session:
+
+bash
+mcp-debugger list
+mcp-debugger inspect <session_id>
+Validate protocol compliance:
+
+bash
+mcp-debugger validate --session <session_id>
+... (continue with other workflows: regression testing, CI integration, etc.)
+
+text
+
+#### 5. FAQ (`docs/faq.md`)
+
+Common questions and answers:
+
+```markdown
+# FAQ
+
+## Q: What is MCP?
+A: The Model Context Protocol is a standard for exposing tools, resources, and prompts to AI agents.
+
+## Q: Does this work with Claude Desktop?
+A: Yes. Configure Claude Desktop to use `mcp-debugger proxy --server <your-server>` as the command.
+
+## Q: Why is `inspect` showing raw JSON instead of formatted?
+A: Use `--pretty` or check that your terminal supports colour.
+
+## Q: Replay says responses don't match, but my server hasn't changed!
+A: Some fields may be non‑deterministic (e.g., timestamps). Consider configuring `diff_ignore_paths` in your config.
+
+... (continue with real questions you've encountered)
+6. Contributing Guide (CONTRIBUTING.md)
+For open‑source contributors:
+
+markdown
+# Contributing to mcp-debugger
+
+Thank you for considering contributing!
+
+## Development Setup
+
+1. Clone the repo:
+   ```bash
+   git clone https://github.com/yourusername/mcp-debugger.git
+   cd mcp-debugger
+Install in editable mode with dev dependencies:
+
+bash
+pip install -e .[dev]
+Run tests:
+
+bash
+pytest
+Code Style
+Use ruff for linting and formatting.
+
+Use mypy for type checking.
+
+Write tests for any new features.
+
+Pull Request Process
+Fork the repo and create a feature branch.
+
+Write tests for your feature.
+
+Ensure all tests pass and coverage doesn't drop.
+
+Submit a PR with a clear description.
+
+... (continue with commit conventions, issue tracking, etc.)
+
+text
+
+#### 7. Changelog (`CHANGELOG.md`)
+
+List all changes per version:
+
+```markdown
+# Changelog
+
+## v0.1.0 (2025-06-25)
+
+### Added
+- Initial release
+- `proxy` command for recording sessions
+- `list` and `inspect` commands
+- `validate` command for protocol compliance
+- `stats` and `compare` commands for analytics
+- `export` command (JSON, Markdown, OTLP)
+- `replay` command with diff visualisation
+- `config` command for user preferences
+- `doctor` command for environment diagnostics
+- Comprehensive test suite (90%+ coverage)
 🔗 Integration with Previous Days
-All modules: Tests will validate every feature built.
+All days: Documentation should reference every feature built.
 
-Day 7 (Doctor): Test doctor command output.
+Day 20 (Config): Document all config keys and usage.
 
-Day 20 (Config): Test config loading and fallback.
+Day 19 (OTLP): Document OTLP export with examples.
 
-Day 21 (Performance): Stress tests will verify performance improvements are real.
+Day 17/18 (Replay): Include replay tutorials.
 
 ⚙️ Production Considerations
-Running Tests in CI
-GitHub Actions: run pytest on Python 3.11 and 3.12 on every push.
+Use Antigravity AI to Generate Docs
+Ask Antigravity to help draft sections:
 
-Use pytest-cov to generate coverage reports and fail if coverage drops below threshold (e.g., 85%).
+“Generate a README for a Python CLI tool called mcp-debugger that records and replays MCP sessions. Include installation, quickstart, features, and badges.”
 
-Integration tests that require npx should be run only if Node.js is installed (check in CI).
+“Write a detailed command reference for mcp-debugger replay with all options, examples, and exit codes.”
 
-Managing Test Data
-Use temporary directories (tmp_path fixture in pytest) for databases and mock server scripts.
+“Create an FAQ covering common issues: how to install, how to configure, why replay mismatches occur.”
 
-Avoid hardcoded paths.
+Demo GIF / Video
+Use asciinema to record a terminal session.
 
-Use environment variables to control OTLP export in tests (mocked or skipped).
+Convert to GIF with agg (asciinema to GIF converter).
 
-Mocking Strategies
-For asyncio.subprocess, use pytest-asyncio and mock create_subprocess_exec to return a mock process.
+Embed in README: ![Demo](https://example.com/demo.gif)
 
-For aiosqlite, use an in‑memory database (:memory:) for speed in unit tests (but not for integration tests where persistence is needed).
+Proofread
+Get someone else to read the docs (or use Antigravity AI to review).
 
-For OTLP exporter, mock the gRPC client to avoid network calls.
+Check for consistency in command names, option names, examples.
 
-Coverage Reporting
-pytest --cov=src/mcp_debugger --cov-report=html --cov-report=term
+Keep Docs Updated
+As you add features, update docs.
 
-Coverage should be measured excluding test files and CLI entry points (**main**.py).
+Tag documentation updates in the same commit as the feature.
 
-Aim for >90% overall, but individual modules may have lower coverage (e.g., CLI due to Typer magic). Still try.
-
-✅ Day 22 Verification Checklist
-
-# Check How to verify
-
-1 tests/ directory mirrors src/ structure Files exist for each module.
-2 All existing tests pass (pytest) pytest – green.
-3 Coverage report generated (pytest --cov) Shows coverage >85% (or target).
-4 Unit tests for schemas.py cover all models and validators test_protocol.py includes parametrized tests.
-5 Unit tests for validator.py cover all rules Each rule has a test (valid and invalid).
-6 Unit tests for database.py cover all methods with error handling Mock DB or real DB with rollbacks.
-7 Unit tests for stdio_proxy.py mock subprocess to test I/O forwarding Mock process with asyncio.create_subprocess_exec.
-8 Unit tests for replay_engine.py mock server responses Verify replay sends messages and captures responses.
-9 Integration test runs full pipeline (proxy → inspect → stats → export → replay) Test passes in CI.
-10 Property‑based tests for schemas (round‑trip) hypothesis tests pass with 100+ random examples.
-11 Property‑based tests for compare_json (symmetry, idempotence) Pass.
-12 Stress test: 10k messages inserted in < 5 seconds pytest-benchmark shows acceptable time.
-13 Stress test: replay 10k messages in < 10 seconds Acceptable.
-14 Stress test: large message (50MB) does not crash proxy Handles with warning.
-15 mypy --strict passes in test files (optional, but nice) –
-16 ruff check passes on test files –
-17 Documentation: docs/contributing.md with test instructions Created.
-18 CI runs all tests on every push and PR GitHub Actions green.
-19 Commit with message test: comprehensive test suite –
+✅ Day 23 Verification Checklist
+#	Check	How to verify
+1	README.md exists with badges, installation, quickstart	Open in GitHub preview – looks professional.
+2	Demo GIF or asciinema recording embedded	Works in README preview.
+3	docs/commands.md covers every CLI command	Compare with mcp-debugger --help output.
+4	docs/architecture.md explains high‑level design	Readable by a developer new to the project.
+5	docs/tutorials.md has 3+ workflows (debugging, regression, CI)	Follow one tutorial – works.
+6	docs/faq.md has 5+ common questions	Covers real questions you've seen.
+7	docs/config.md (or integrated) covers all config keys	Each key has a description and example.
+8	CONTRIBUTING.md exists with setup, style, PR process	–
+9	CHANGELOG.md lists all features (v0.1.0)	Matches commits.
+10	All examples in docs are tested (copy‑paste works)	Run each example command – no errors.
+11	Links between docs work	Click through – no broken links.
+12	Documentation is in Markdown (GitHub‑friendly)	Preview renders correctly.
+13	mypy --strict passes	–
+14	ruff check passes	–
+15	Commit with message docs: comprehensive documentation	–
+````

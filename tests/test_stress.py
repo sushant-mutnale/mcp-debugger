@@ -131,6 +131,11 @@ while True:
 
     server_cmd = f"{sys.executable} {mock_server_path}"
 
+    # Pre-initialize database file & schemas to avoid concurrent migration lockouts
+    db_init = Database(str(db_path))
+    await db_init.connect()
+    await db_init.close()
+
     # Helper to run a short proxy session
     async def run_proxy_session(name: str):
         proc = await asyncio.create_subprocess_exec(
