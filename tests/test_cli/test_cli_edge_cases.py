@@ -344,8 +344,7 @@ def test_doctor_permissions_and_schema_errors(runner: CliRunner) -> None:
         patch("pathlib.Path.exists", return_value=True),
     ):
         result = runner.invoke(app, ["doctor"])
-        assert "Permissions" in result.stdout
-        assert "too open" in result.stdout
+        assert "permissions too open" in result.stdout
 
     # 3. Database schema check: connect throws Exception
     with (

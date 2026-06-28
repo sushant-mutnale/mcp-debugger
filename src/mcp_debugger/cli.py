@@ -815,7 +815,7 @@ def doctor() -> None:
                     lines.append(
                         Text.assemble(
                             ("✗", "yellow"),
-                            f" Database file: {db_file_path} [Permissions too open: should be 600, found {oct(mode)[2:]}]",
+                            f" Database file permissions too open (found {oct(mode)[2:]}, want 600): {db_file_path}",
                         )
                     )
             except Exception as e:

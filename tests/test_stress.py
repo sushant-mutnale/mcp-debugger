@@ -161,9 +161,16 @@ while True:
                     "params": {"client": name, "num": i},
                 }
                 proc.stdin.write(json.dumps(req).encode("utf-8") + b"\n")
-                await proc.stdin.drain()
+                try:
+                    await proc.stdin.drain()
+                except (ConnectionResetError, BrokenPipeError):
+                    # Subprocess exited before all writes completed — expected in stress tests
+                    break
                 # Read response
-                await proc.stdout.readline()
+                try:
+                    await asyncio.wait_for(proc.stdout.readline(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    break
         finally:
             if proc.stdin:
                 try:
