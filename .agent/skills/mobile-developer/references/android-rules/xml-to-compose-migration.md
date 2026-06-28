@@ -189,7 +189,7 @@ OutlinedTextField(
 // Compose
 ConstraintLayout(modifier = Modifier.fillMaxWidth()) {
     val (title, subtitle) = createRefs()
-    
+
     Text(
         text = "Title",
         modifier = Modifier.constrainAs(title) {
@@ -198,7 +198,7 @@ ConstraintLayout(modifier = Modifier.fillMaxWidth()) {
         }
     )
     Text(
-        text = "Subtitle", 
+        text = "Subtitle",
         modifier = Modifier.constrainAs(subtitle) {
             top.linkTo(title.bottom)
             start.linkTo(title.start)
@@ -297,7 +297,7 @@ viewModel.uiState.observe(viewLifecycleOwner) { state ->
 @Composable
 fun MyScreen(viewModel: MyViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    
+
     Text(text = uiState.title)
 }
 ```

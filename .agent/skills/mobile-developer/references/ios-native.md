@@ -355,4 +355,3 @@ code examples, and best practices for modern iOS/macOS development.
 - [liquid-glass.md](ios-rules/liquid-glass.md) — iOS 26+ glass effects, fallback patterns
 - [latest-apis.md](ios-rules/latest-apis.md) — Deprecated-to-modern migration (iOS 15–26+)
 - [accessibility-patterns.md](ios-rules/accessibility-patterns.md) — VoiceOver, Dynamic Type, traits
-

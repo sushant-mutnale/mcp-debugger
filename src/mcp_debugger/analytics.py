@@ -199,17 +199,17 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
     try:
         async with conn.execute(
             """
-            SELECT 
+            SELECT
                 req.params as req_params,
                 resp.latency_ms as latency_ms,
                 resp.result as resp_result,
                 resp.error as resp_error
             FROM messages req
-            LEFT JOIN messages resp ON req.session_id = resp.session_id 
-                                    AND req.message_id = resp.message_id 
+            LEFT JOIN messages resp ON req.session_id = resp.session_id
+                                    AND req.message_id = resp.message_id
                                     AND resp.message_type = 'response'
-            WHERE req.session_id = ? 
-              AND req.method = 'tools/call' 
+            WHERE req.session_id = ?
+              AND req.method = 'tools/call'
               AND req.message_type = 'request'
             """,
             (session_id,),

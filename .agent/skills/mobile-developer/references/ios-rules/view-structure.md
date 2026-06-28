@@ -218,7 +218,7 @@ MyContainer {
 
 Use `ZStack` to **compose multiple peer views** that should be layered together and jointly define layout.
 
-Prefer `overlay` / `background` when you’re **decorating a primary view**.  
+Prefer `overlay` / `background` when you’re **decorating a primary view**.
 Not primarily because they don’t affect layout size, but because they **express intent and improve readability**: the view being modified remains the clear layout anchor.
 
 A key difference is **size proposal behavior**:

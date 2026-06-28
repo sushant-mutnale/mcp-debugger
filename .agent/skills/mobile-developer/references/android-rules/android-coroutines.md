@@ -114,7 +114,7 @@ class NewsRepository(
 suspend fun loadDashboardData() = coroutineScope {
     val userDeferred = async { userRepo.getUser() }
     val feedDeferred = async { feedRepo.getFeed() }
-    
+
     // Wait for both
     DashboardData(
         user = userDeferred.await(),
@@ -130,10 +130,10 @@ suspend fun loadDashboardData() = coroutineScope {
 fun testViewModel() = runTest {
     val testDispatcher = StandardTestDispatcher(testScheduler)
     val viewModel = MyViewModel(testDispatcher)
-    
+
     viewModel.loadData()
     advanceUntilIdle() // Process coroutines
-    
+
     assertEquals(expectedState, viewModel.uiState.value)
 }
 ```

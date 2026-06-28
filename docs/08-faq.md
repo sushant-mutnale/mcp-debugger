@@ -22,7 +22,7 @@ No data ever leaves your computer or is uploaded to the cloud. You can clear you
 ---
 
 ### Q: How do I configure mcp-debugger with Claude Desktop?
-**A**: Open your Claude Desktop configuration file (typically located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows). 
+**A**: Open your Claude Desktop configuration file (typically located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows).
 
 Prepend the proxy command to your existing server definition:
 ```json

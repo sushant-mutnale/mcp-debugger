@@ -791,7 +791,7 @@ class Database:
         try:
             conn = await self._get_conn()
             query = """
-                SELECT 
+                SELECT
                     id,
                     session_uuid,
                     friendly_name,
@@ -826,20 +826,20 @@ class Database:
         try:
             conn = await self._get_conn()
             query = """
-                SELECT 
-                    req.id AS req_id, 
-                    req.message_id AS req_msg_id, 
-                    req.method, 
-                    req.params, 
+                SELECT
+                    req.id AS req_id,
+                    req.message_id AS req_msg_id,
+                    req.method,
+                    req.params,
                     req.message_type,
                     resp.id AS resp_id,
                     resp.result AS resp_result,
                     resp.error AS resp_error
                 FROM messages req
-                LEFT JOIN messages resp ON 
-                    resp.session_id = req.session_id AND 
-                    resp.message_id = req.message_id AND 
-                    resp.direction = 'server_to_client' AND 
+                LEFT JOIN messages resp ON
+                    resp.session_id = req.session_id AND
+                    resp.message_id = req.message_id AND
+                    resp.direction = 'server_to_client' AND
                     resp.message_type = 'response'
                 WHERE req.session_id = ? AND req.direction = 'client_to_server'
                 ORDER BY req.timestamp ASC

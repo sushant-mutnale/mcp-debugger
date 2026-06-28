@@ -131,7 +131,7 @@ fun locationUpdates(): Flow<Location> = callbackFlow {
         trySend(location)
     }
     locationManager.requestLocationUpdates(listener)
-    
+
     awaitClose { locationManager.removeUpdates(listener) }
 }
 ```
@@ -154,10 +154,10 @@ fun `loading data updates state`() = runTest {
     val testDispatcher = StandardTestDispatcher(testScheduler)
     val repository = FakeRepository()
     val viewModel = MyViewModel(repository, testDispatcher)
-    
+
     viewModel.loadData()
     advanceUntilIdle()
-    
+
     assertEquals(UiState.Success(data), viewModel.uiState.value)
 }
 ```

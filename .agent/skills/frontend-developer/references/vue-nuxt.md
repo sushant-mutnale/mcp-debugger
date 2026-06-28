@@ -286,4 +286,3 @@ practices from the Vue ecosystem. Read the specific rule when working in that ar
 - [testing-no-snapshot-only.md](vue-rules/testing/testing-no-snapshot-only.md) — Don't rely on snapshots only
 - [testing-browser-vs-node-runners.md](vue-rules/testing/testing-browser-vs-node-runners.md) — Browser vs Node runners
 - [testing-e2e-playwright-recommended.md](vue-rules/testing/testing-e2e-playwright-recommended.md) — Playwright for E2E
-

@@ -13,7 +13,7 @@ To maintain transparency and ensure pipes are not polluted, the codebase adheres
   import logging
   logger = logging.getLogger(__name__)
   ```
-- **Stream Isolation**: 
+- **Stream Isolation**:
   - **Stdout Is Reserved**: Because standard input and output are the communication channels for the stdio proxy, no modules may log to `sys.stdout`.
   - **Stderr Targets**: All system logging must write to `sys.stderr` or private log files.
 - **Log Levels**:

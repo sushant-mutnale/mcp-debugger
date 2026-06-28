@@ -91,7 +91,7 @@ class MyDaoTest {
         hiltRule.inject()
         dao = database.myDao()
     }
-    
+
     // ... tests
 }
 ```

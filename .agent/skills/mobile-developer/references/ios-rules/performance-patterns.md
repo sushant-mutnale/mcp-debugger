@@ -93,7 +93,7 @@ ExpensiveView(data: data)
 struct FastView: View {
     let title: String
     let count: Int
-    
+
     var body: some View {
         Text("\(title): \(count)")
     }
@@ -103,7 +103,7 @@ struct FastView: View {
 struct SlowerView: View {
     let title: String
     @State private var isExpanded = false  // Property wrapper makes it non-POD
-    
+
     var body: some View {
         Text(title)
     }
@@ -116,7 +116,7 @@ struct SlowerView: View {
 // POD wrapper for fast diffing
 struct ExpensiveView: View {
     let value: Int
-    
+
     var body: some View {
         ExpensiveViewInternal(value: value)
     }
@@ -126,7 +126,7 @@ struct ExpensiveView: View {
 private struct ExpensiveViewInternal: View {
     let value: Int
     @State private var item: Item?
-    
+
     var body: some View {
         // Expensive rendering
     }
@@ -191,12 +191,12 @@ struct DataView: View {
 struct DebugView: View {
     @State private var count = 0
     @State private var name = ""
-    
+
     var body: some View {
         #if DEBUG
         let _ = Self._logChanges()  // Xcode 15.1+: logs to com.apple.SwiftUI subsystem
         #endif
-        
+
         VStack {
             Text("Count: \(count)")
             Text("Name: \(name)")

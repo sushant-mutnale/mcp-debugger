@@ -1,362 +1,327 @@
-Day 23: Documentation & README – Making Your Project Shine
-You have a fully functional, tested, and performance‑hardened tool. But if nobody knows how to use it, or if the documentation is confusing, adoption will suffer. Day 23 is about polishing the user experience through comprehensive documentation.
+Day 24: Packaging & Distribution – Preparing for PyPI Release
+You've built a comprehensive tool with great docs. Now it's time to package it professionally and distribute it so the world can install it with a simple pip install mcp-debugger.
 
-By the end of Day 23, your project will have:
+By the end of Day 24, your tool will be:
 
-A beautiful README.md with clear installation, quickstart, and feature overview.
+Properly packaged – pyproject.toml fully configured with all metadata, classifiers, and dependencies.
 
-Detailed command reference with examples for every command.
+Buildable – uv build creates a clean wheel and source distribution.
 
-Architecture documentation explaining how it works (for contributors).
+Installable – pip install mcp-debugger works from PyPI (or test PyPI).
 
-Tutorials for common workflows (debugging a server, regression testing, CI integration).
+CI/CD automated – GitHub Actions automatically publishes new versions when you push a tag.
 
-FAQ covering common questions and troubleshooting.
-
-This documentation is what turns casual visitors into users and contributors.
+Releasable – you have a clear process for cutting a new release.
 
 🎯 Core Objective
-Create a complete documentation suite across these layers:
+Prepare the project for PyPI distribution with:
 
-Layer Purpose Audience
-README.md First impression, installation, quickstart All visitors
-User Guide Full command reference, workflows, examples End users
-Architecture Guide Design decisions, module overview, data flow Contributors
-API Reference If applicable (not needed for MVP) Developers integrating with your tool
-Troubleshooting Common issues and solutions All users
-Changelog Version history, breaking changes Users upgrading
+Component Description
+pyproject.toml Complete metadata (name, version, description, authors, license, classifiers, dependencies).
+Entry points CLI command mcp-debugger correctly registered.
+Optional dependencies [otlp], [dev], [test] groups.
+Build backend hatchling or setuptools (hatchling is modern).
+Version management Single source of truth (e.g., **version** in **init**.py).
+CI/CD GitHub Actions workflow to publish to PyPI on tags.
+Pre‑release testing Publish to Test PyPI first, verify install.
+Changelog Updated with the release version.
+Tagging Proper Git tags (e.g., v0.1.0).
 Deliverables by end of day:
 
-A polished README.md with badges, screenshots, and clear structure.
+A clean pyproject.toml ready for PyPI.
 
-docs/ directory with at least 6 files (see below).
+A successful uv build producing dist/mcp_debugger-0.1.0-py3-none-any.whl and dist/mcp_debugger-0.1.0.tar.gz.
 
-All existing documentation reviewed and updated.
+Successful installation from Test PyPI (pip install --index-url https://test.pypi.org/simple/ mcp-debugger).
 
-A demo GIF or video (optional but highly recommended).
+GitHub Actions workflow that publishes to PyPI on tag push.
+
+Documentation updated with installation instructions.
 
 🧠 Expected Behaviour
 
-1. README.md Structure
-   A compelling README is critical. Follow this structure:
+1. Complete pyproject.toml Configuration
+   Here's a production‑ready pyproject.toml:
+
+toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-debugger"
+version = "0.1.0"
+description = "Transparent proxy to debug, record, validate, and replay MCP (Model Context Protocol) sessions"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+{ name = "Your Name", email = "you@example.com" }
+]
+maintainers = [
+{ name = "Your Name", email = "you@example.com" }
+]
+classifiers = [
+"Development Status :: 4 - Beta",
+"Intended Audience :: Developers",
+"License :: OSI Approved :: MIT License",
+"Programming Language :: Python :: 3",
+"Programming Language :: Python :: 3.11",
+"Programming Language :: Python :: 3.12",
+"Programming Language :: Python :: 3.13",
+"Topic :: Software Development :: Debuggers",
+"Topic :: Software Development :: Testing",
+"Topic :: System :: Monitoring",
+]
+requires-python = ">=3.11"
+dependencies = [
+"typer>=0.9.0",
+"rich>=13.7.0",
+"pydantic>=2.5.0",
+"aiosqlite>=0.19.0",
+"tomli>=2.0.1", # for Python <3.11 TOML parsing
+]
+
+[project.optional-dependencies]
+otlp = [
+"opentelemetry-api>=1.20.0",
+"opentelemetry-sdk>=1.20.0",
+"opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
+]
+dev = [
+"pytest>=8.0.0",
+"pytest-asyncio>=0.21.0",
+"pytest-cov>=4.0.0",
+"pytest-mock>=3.12.0",
+"ruff>=0.1.0",
+"mypy>=1.7.0",
+"hypothesis>=6.0.0",
+"pytest-benchmark>=4.0.0",
+"pre-commit>=3.0.0",
+]
+
+[project.scripts]
+mcp-debugger = "mcp_debugger.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/mcp-debugger"
+Repository = "https://github.com/yourusername/mcp-debugger"
+Documentation = "https://github.com/yourusername/mcp-debugger#readme"
+Issues = "https://github.com/yourusername/mcp-debugger/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_debugger"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+"/src",
+"/tests",
+"/docs",
+"/scripts",
+"README.md",
+"CONTRIBUTING.md",
+"CHANGELOG.md",
+"LICENSE",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["src/mcp_debugger/version.py"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+exclude = ["tests/", "scripts/"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --cov=src/mcp_debugger --cov-report=term --cov-report=html"
+markers = [
+"integration: marks tests as integration tests (deselect with -m \"not integration\")",
+"stress: marks tests as stress tests (slow)",
+] 2. Version Management – Single Source of Truth
+Create src/mcp_debugger/version.py:
+
+python
+**version** = "0.1.0"
+In src/mcp_debugger/**init**.py:
+
+python
+from .version import **version**
+In pyproject.toml, reference it (hatchling can read from **init**.py). Alternatively, use version = {attr = "mcp_debugger.**version**"} instead of hardcoding.
+
+3. GitHub Actions Workflow for PyPI Release
+   Create .github/workflows/release.yml:
+
+yaml
+name: Release to PyPI
+
+on:
+push:
+tags: - 'v\*' # Triggers on tags like v0.1.0, v1.2.3
+
+jobs:
+build:
+name: Build distribution
+runs-on: ubuntu-latest
+steps: - uses: actions/checkout@v4 - uses: actions/setup-python@v5
+with:
+python-version: '3.12' - name: Install uv
+run: pip install uv - name: Build
+run: uv build - name: Store distribution packages
+uses: actions/upload-artifact@v4
+with:
+name: dist
+path: dist/
+
+publish-to-pypi:
+name: Publish to PyPI
+needs: build
+runs-on: ubuntu-latest
+environment:
+name: pypi
+url: https://pypi.org/p/mcp-debugger
+permissions:
+id-token: write # IMPORTANT: mandatory for trusted publishing
+steps: - name: Download dist
+uses: actions/download-artifact@v4
+with:
+name: dist
+path: dist/ - name: Publish to PyPI
+uses: pypa/gh-action-pypi-publish@release/v1 # Uses OIDC trusted publishing – no API token needed
+To set up trusted publishing:
+
+Go to PyPI → Your project → Settings → Publishing → Add pending publisher.
+
+Set PyPI project name: mcp-debugger.
+
+Set Owner: yourusername, Repository: mcp-debugger, Workflow: release.yml.
+
+4. Pre‑commit Hook for Version Bump
+   Add to .pre-commit-config.yaml:
+
+yaml
+repos:
+
+- repo: local
+  hooks: - id: version-check
+  name: Check version consistency
+  entry: python scripts/check_version.py
+  language: system
+  files: ^(src/mcp_debugger/version\.py|pyproject\.toml)$
+  pass_filenames: false
+  This ensures **version** matches pyproject.toml.
+
+5. Release Process Documentation
+   Create RELEASING.md:
 
 markdown
 
-# mcp-debugger
+# Releasing mcp-debugger
 
-> Transparent proxy to debug, record, validate, and replay MCP (Model Context Protocol) sessions.
+## Prerequisites
 
-[![PyPI version](https://badge.fury.io/py/mcp-debugger.svg)](https://badge.fury.io/py/mcp-debugger)
-[![Python versions](https://img.shields.io/pypi/pyversions/mcp-debugger.svg)](https://pypi.org/project/mcp-debugger/)
-[![Tests](https://github.com/yourusername/mcp-debugger/actions/workflows/test.yml/badge.svg)](https://github.com/yourusername/mcp-debugger/actions)
-[![Coverage](https://codecov.io/gh/yourusername/mcp-debugger/branch/main/graph/badge.svg)](https://codecov.io/gh/yourusername/mcp-debugger)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+- Maintainer access to PyPI
+- Trusted publisher configured (or API token)
 
-## ✨ Features
+## Steps
 
-- 🔍 **Record** – Capture every JSON‑RPC message between MCP client and server
-- 📊 **Inspect** – Beautiful terminal UI with syntax‑highlighted messages
-- ✅ **Validate** – Check MCP protocol compliance (handshake, methods, schemas)
-- 🔄 **Replay** – Regression test server changes by replaying sessions
-- 📈 **Stats** – See tool usage, latency trends, error rates
-- 📤 **Export** – JSON, Markdown, or OpenTelemetry (OTLP) traces
-- 🚀 **Local‑first** – No cloud, no signup, all data stays on your machine
+1. Update version in `src/mcp_debugger/version.py` and `pyproject.toml`.
+2. Update `CHANGELOG.md` with the release notes.
+3. Commit: `git commit -m "chore: prepare release v0.1.0"`.
+4. Tag: `git tag v0.1.0`.
+5. Push: `git push origin main --tags`.
+6. GitHub Actions will build and publish to PyPI automatically.
 
-## 📦 Installation
+## Verify
 
-````bash
-pip install mcp-debugger
-Or with optional OTLP support:
+- `pip install mcp-debugger` – works.
+- `mcp-debugger version` – shows correct version.
 
-bash
-pip install mcp-debugger[otlp]
-🚀 Quickstart
-1. Record a session
-bash
-mcp-debugger proxy --server "npx -y @modelcontextprotocol/server-filesystem /tmp" --name "my-test"
-2. List recorded sessions
-bash
-mcp-debugger list
-3. Inspect a session
-bash
-mcp-debugger inspect 42
-4. Validate a server
-bash
-mcp-debugger validate --server "npx -y @modelcontextprotocol/server-filesystem /tmp"
-5. Replay a session
-bash
-mcp-debugger replay 42 --server "npx -y @modelcontextprotocol/server-filesystem /tmp"
-📖 Documentation
-Commands Reference
+6. Test PyPI Publishing (Before Real PyPI)
+   To test without risking the real PyPI:
 
-Architecture Overview
+Build: uv build
 
-Tutorials
+Publish to Test PyPI: uv publish --publish-url https://test.pypi.org/legacy/ --token <test-token>
 
-FAQ
+Install: pip install --index-url https://test.pypi.org/simple/ mcp-debugger
 
-Contributing
+Verify functionality.
 
-🧪 Running Tests
-bash
-git clone https://github.com/yourusername/mcp-debugger.git
-cd mcp-debugger
-pip install -e .[dev,test]
-pytest
-🤝 Contributing
-See CONTRIBUTING.md.
+If using GitHub Actions, you can also create a separate workflow for Test PyPI, or just test locally before tagging.
 
-📄 License
-MIT © Your Name
-
-text
-
-**Add a demo GIF/screenshot** – use `asciinema` or `terminalizer` to record a 30‑second demo.
-
-#### 2. User Guide (`docs/commands.md`)
-
-Create a comprehensive reference for every command:
-
-```markdown
-# Command Reference
-
-## `mcp-debugger proxy`
-
-Record an MCP session.
-
-**Usage:**
-```bash
-mcp-debugger proxy --server <command> [OPTIONS]
-Options:
-
-Option	Type	Default	Description
---server, -s	str	required	Command to launch the MCP server
---name, -n	str	None	Friendly name for the session
---timeout	int	5000	Timeout in ms for server responses
---verbose, -v	flag	False	Show verbose output
---output	path	None	Save session to a specific DB file (for testing)
-Example:
-
-bash
-mcp-debugger proxy --server "npx -y @modelcontextprotocol/server-filesystem /tmp" --name "testing-fs"
-mcp-debugger list
-Show all recorded sessions.
-
-Usage:
-
-bash
-mcp-debugger list [OPTIONS]
-Options:
-
-Option	Type	Default	Description
---limit	int	20	Maximum number of sessions to show
---status	str	None	Filter by status (running/completed/error)
---json	flag	False	Output as JSON
-... (continue for all commands)
-
-text
-
-#### 3. Architecture Guide (`docs/architecture.md`)
-
-Explain how the tool works (for contributors):
-
-```markdown
-# Architecture Overview
-
-## High‑Level Design
-
-mcp-debugger is built around a **stdio proxy** that sits between an MCP client and server.
-[Client] <--stdin/stdout--> [Proxy] <--stdin/stdout--> [Server]
-|
-v
-[SQLite DB]
-
-text
-
-## Components
-
-### 1. Proxy (`src/mcp_debugger/proxy/`)
-- Uses `asyncio.subprocess` to launch the server.
-- Forwards messages bidirectionally.
-- Logs every message to SQLite.
-
-### 2. Storage (`src/mcp_debugger/storage/`)
-- SQLite database with tables: `sessions`, `messages`, `tools`, `errors`.
-- `aiosqlite` for async‑safe database operations.
-
-### 3. Protocol (`src/mcp_debugger/protocol/`)
-- Pydantic models for JSON‑RPC 2.0 and MCP types.
-- Validator for protocol compliance (handshake, methods, schemas).
-- Error classifier for categorising failures.
-
-### 4. Replay (`src/mcp_debugger/replay/`)
-- Loads client messages from a recorded session.
-- Re‑sends them to a new server.
-- Compares responses and generates diffs.
-
-### 5. Exporters (`src/mcp_debugger/exporters/`)
-- JSON, Markdown, and OpenTelemetry (OTLP) exporters.
-
-... (continue with data flow diagrams and sequence diagrams)
-4. Tutorials (docs/tutorials.md)
-Step‑by‑step guides for common workflows:
-
-markdown
-# Tutorials
-
-## Debugging a New MCP Server
-
-1. Record a session with your server:
-   ```bash
-   mcp-debugger proxy --server "python my_server.py" --name "server-debug"
-Interact with your server as normal (via Claude Desktop, etc.).
-
-Stop the proxy (Ctrl+C) and inspect the session:
-
-bash
-mcp-debugger list
-mcp-debugger inspect <session_id>
-Validate protocol compliance:
-
-bash
-mcp-debugger validate --session <session_id>
-... (continue with other workflows: regression testing, CI integration, etc.)
-
-text
-
-#### 5. FAQ (`docs/faq.md`)
-
-Common questions and answers:
-
-```markdown
-# FAQ
-
-## Q: What is MCP?
-A: The Model Context Protocol is a standard for exposing tools, resources, and prompts to AI agents.
-
-## Q: Does this work with Claude Desktop?
-A: Yes. Configure Claude Desktop to use `mcp-debugger proxy --server <your-server>` as the command.
-
-## Q: Why is `inspect` showing raw JSON instead of formatted?
-A: Use `--pretty` or check that your terminal supports colour.
-
-## Q: Replay says responses don't match, but my server hasn't changed!
-A: Some fields may be non‑deterministic (e.g., timestamps). Consider configuring `diff_ignore_paths` in your config.
-
-... (continue with real questions you've encountered)
-6. Contributing Guide (CONTRIBUTING.md)
-For open‑source contributors:
-
-markdown
-# Contributing to mcp-debugger
-
-Thank you for considering contributing!
-
-## Development Setup
-
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/yourusername/mcp-debugger.git
-   cd mcp-debugger
-Install in editable mode with dev dependencies:
-
-bash
-pip install -e .[dev]
-Run tests:
-
-bash
-pytest
-Code Style
-Use ruff for linting and formatting.
-
-Use mypy for type checking.
-
-Write tests for any new features.
-
-Pull Request Process
-Fork the repo and create a feature branch.
-
-Write tests for your feature.
-
-Ensure all tests pass and coverage doesn't drop.
-
-Submit a PR with a clear description.
-
-... (continue with commit conventions, issue tracking, etc.)
-
-text
-
-#### 7. Changelog (`CHANGELOG.md`)
-
-List all changes per version:
-
-```markdown
-# Changelog
-
-## v0.1.0 (2025-06-25)
-
-### Added
-- Initial release
-- `proxy` command for recording sessions
-- `list` and `inspect` commands
-- `validate` command for protocol compliance
-- `stats` and `compare` commands for analytics
-- `export` command (JSON, Markdown, OTLP)
-- `replay` command with diff visualisation
-- `config` command for user preferences
-- `doctor` command for environment diagnostics
-- Comprehensive test suite (90%+ coverage)
 🔗 Integration with Previous Days
-All days: Documentation should reference every feature built.
+Day 23 (Docs): README now includes PyPI version badge and installation instructions.
 
-Day 20 (Config): Document all config keys and usage.
+Day 7 (Doctor): Doctor should verify mcp-debugger version works after install.
 
-Day 19 (OTLP): Document OTLP export with examples.
-
-Day 17/18 (Replay): Include replay tutorials.
+All code: No changes needed – packaging is just metadata.
 
 ⚙️ Production Considerations
-Use Antigravity AI to Generate Docs
-Ask Antigravity to help draft sections:
+Trusted Publishing (vs. API Token)
+Trusted publishing (OIDC) is more secure – no secret tokens to manage. PyPI recommends it.
 
-“Generate a README for a Python CLI tool called mcp-debugger that records and replays MCP sessions. Include installation, quickstart, features, and badges.”
+If you can't use trusted publishing, set PYPI_API_TOKEN as a GitHub secret and use:
 
-“Write a detailed command reference for mcp-debugger replay with all options, examples, and exit codes.”
+yaml
 
-“Create an FAQ covering common issues: how to install, how to configure, why replay mismatches occur.”
+- name: Publish to PyPI
+  uses: pypa/gh-action-pypi-publish@release/v1
+  with:
+  password: ${{ secrets.PYPI_API_TOKEN }}
+  Package Name Availability
+  Check if mcp-debugger is available on PyPI. If not, choose a unique name.
 
-Demo GIF / Video
-Use asciinema to record a terminal session.
+Consider adding a short description to distinguish from other MCP tools.
 
-Convert to GIF with agg (asciinema to GIF converter).
+License
+Ensure LICENSE file exists in the root (MIT or Apache 2.0 recommended).
 
-Embed in README: ![Demo](https://example.com/demo.gif)
+Match the license in pyproject.toml.
 
-Proofread
-Get someone else to read the docs (or use Antigravity AI to review).
+Optional Dependencies
+[otlp] – for OpenTelemetry export.
 
-Check for consistency in command names, option names, examples.
+[dev] – for development dependencies.
 
-Keep Docs Updated
-As you add features, update docs.
+[test] – for test dependencies.
 
-Tag documentation updates in the same commit as the feature.
+Users can install with: pip install mcp-debugger[otlp].
 
-✅ Day 23 Verification Checklist
-#	Check	How to verify
-1	README.md exists with badges, installation, quickstart	Open in GitHub preview – looks professional.
-2	Demo GIF or asciinema recording embedded	Works in README preview.
-3	docs/commands.md covers every CLI command	Compare with mcp-debugger --help output.
-4	docs/architecture.md explains high‑level design	Readable by a developer new to the project.
-5	docs/tutorials.md has 3+ workflows (debugging, regression, CI)	Follow one tutorial – works.
-6	docs/faq.md has 5+ common questions	Covers real questions you've seen.
-7	docs/config.md (or integrated) covers all config keys	Each key has a description and example.
-8	CONTRIBUTING.md exists with setup, style, PR process	–
-9	CHANGELOG.md lists all features (v0.1.0)	Matches commits.
-10	All examples in docs are tested (copy‑paste works)	Run each example command – no errors.
-11	Links between docs work	Click through – no broken links.
-12	Documentation is in Markdown (GitHub‑friendly)	Preview renders correctly.
-13	mypy --strict passes	–
-14	ruff check passes	–
-15	Commit with message docs: comprehensive documentation	–
-````
+Windows Support
+The tool uses asyncio.subprocess and Unix‑style paths. Windows support may require additional effort.
+
+For MVP, state that the tool is tested on Linux/macOS and may have issues on Windows.
+
+Add a classifier: "Operating System :: POSIX :: Linux".
+
+Minimum Python Version
+Python 3.11+ (due to tomllib and asyncio features).
+
+Classifiers reflect this.
+
+✅ Day 24 Verification Checklist
+
+# Check How to verify
+
+1 pyproject.toml complete with all fields Validate with uv build – no errors.
+2 version.py exists and matches pyproject.toml Python import prints correct version.
+3 uv build produces wheel and source dist dist/ directory contains .whl and .tar.gz.
+4 Wheel installs correctly in a fresh venv pip install dist/mcp_debugger-\*.whl – imports without error.
+5 CLI entry point works after install mcp-debugger version shows correct version.
+6 All dependencies are declared and installed pip install .[otlp] – optional deps installed.
+7 Publish to Test PyPI works uv publish --publish-url https://test.pypi.org/legacy/ – success.
+8 Install from Test PyPI works pip install --index-url https://test.pypi.org/simple/ mcp-debugger – works.
+9 GitHub Actions workflow exists (release.yml) File present.
+10 Release workflow is tested (dry run) Create a test tag, push – workflow runs successfully.
+11 pre-commit version check hook works Modify version without updating pyproject.toml – hook fails.
+12 RELEASING.md exists with clear steps –
+13 LICENSE file exists MIT or Apache 2.0.
+14 CHANGELOG.md has entry for v0.1.0 –
+15 Classifiers in pyproject.toml reflect supported platforms –
+16 mypy --strict passes –
+17 ruff check passes –
+18 Commit with message chore(packaging): prepare for PyPI release –

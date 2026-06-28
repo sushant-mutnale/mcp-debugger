@@ -122,7 +122,7 @@ await stripe.subscriptions.create(params, {
 async function handleWebhook(event) {
   // Check if already processed
   if (await db.webhookEvents.find(event.id)) return;
-  
+
   await db.webhookEvents.create({ id: event.id, processedAt: new Date() });
   // ... handle event
 }

@@ -110,15 +110,15 @@ To support rapid filtering during CLI inspections (e.g. `mcp-debugger inspect <i
 
 ```sql
 -- Fast message lookup and chronological sorting per session
-CREATE INDEX IF NOT EXISTS idx_messages_session_time 
+CREATE INDEX IF NOT EXISTS idx_messages_session_time
 ON messages (session_id, timestamp);
 
 -- Instant method searching
-CREATE INDEX IF NOT EXISTS idx_messages_method 
+CREATE INDEX IF NOT EXISTS idx_messages_method
 ON messages (method);
 
 -- Session queries by UUID
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_uuid 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_uuid
 ON sessions (session_uuid);
 ```
 

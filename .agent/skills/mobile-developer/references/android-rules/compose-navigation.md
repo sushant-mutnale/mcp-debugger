@@ -17,7 +17,7 @@ Add the Navigation Compose dependency:
 // build.gradle.kts
 dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.5")
-    
+
     // For type-safe navigation (recommended)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 }
@@ -62,7 +62,7 @@ data class ProductDetail(val productId: String, val showReviews: Boolean = false
 @Composable
 fun MyApp() {
     val navController = rememberNavController()
-    
+
     AppNavHost(navController = navController)
 }
 ```
@@ -87,12 +87,12 @@ fun AppNavHost(
                 }
             )
         }
-        
+
         composable<Profile> { backStackEntry ->
             val profile: Profile = backStackEntry.toRoute()
             ProfileScreen(userId = profile.userId)
         }
-        
+
         composable<Settings> { backStackEntry ->
             val settings: Settings = backStackEntry.toRoute()
             SettingsScreen(section = settings.section)
@@ -132,10 +132,10 @@ navController.navigate(Profile(userId = "user123")) {
         inclusive = false  // Keep Home in stack
         saveState = true   // Save state of popped screens
     }
-    
+
     // Avoid multiple copies of same destination
     launchSingleTop = true
-    
+
     // Restore state when navigating to this destination
     restoreState = true
 }
@@ -147,13 +147,13 @@ navController.navigate(Profile(userId = "user123")) {
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
-    
+
     Scaffold(
         bottomBar = {
             NavigationBar {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
-                
+
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
                     label = { Text("Home") },
@@ -201,9 +201,9 @@ class ProfileViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val userRepository: UserRepository
 ) : ViewModel() {
-    
+
     private val profile: Profile = savedStateHandle.toRoute<Profile>()
-    
+
     val user: StateFlow<User?> = userRepository
         .getUser(profile.userId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -285,7 +285,7 @@ val pendingIntent = TaskStackBuilder.create(context).run {
 ```kotlin
 NavHost(navController = navController, startDestination = Home) {
     composable<Home> { HomeScreen() }
-    
+
     // Nested graph for authentication flow
     navigation<AuthGraph>(startDestination = Login) {
         composable<Login> {
@@ -321,7 +321,7 @@ fun AdaptiveApp() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    
+
     NavigationSuiteScaffold(
         navigationSuiteItems = {
             item(
@@ -360,9 +360,9 @@ androidTestImplementation("androidx.navigation:navigation-testing:2.8.5")
 class NavigationTest {
     @get:Rule
     val composeTestRule = createComposeRule()
-    
+
     private lateinit var navController: TestNavHostController
-    
+
     @Before
     fun setup() {
         composeTestRule.setContent {
@@ -371,20 +371,20 @@ class NavigationTest {
             AppNavHost(navController = navController)
         }
     }
-    
+
     @Test
     fun verifyStartDestination() {
         composeTestRule
             .onNodeWithText("Welcome")
             .assertIsDisplayed()
     }
-    
+
     @Test
     fun navigateToProfile_displaysProfileScreen() {
         composeTestRule
             .onNodeWithText("View Profile")
             .performClick()
-        
+
         assertTrue(
             navController.currentBackStackEntry?.destination?.hasRoute<Profile>() == true
         )

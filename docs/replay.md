@@ -115,4 +115,3 @@ mcp-debugger replay 42 --server "..." --otlp-export
 
 # View traces at http://localhost:16686
 ```
-

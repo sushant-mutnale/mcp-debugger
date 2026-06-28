@@ -288,4 +288,3 @@ best practices for the Dart language foundation that underpins Flutter developme
 
 - [dart-doc-validation.md](flutter-rules/dart-doc-validation.md) — Doc comment validation
 - [dart-package-maintenance.md](flutter-rules/dart-package-maintenance.md) — Package maintenance standards
-

@@ -156,12 +156,12 @@ def main():
         }
         sys.stdout.write(json.dumps(res) + "\\n")
         sys.stdout.flush()
-    
+
     # 2. Read notifications/initialized
     line = sys.stdin.readline()
     if not line:
         return
-    
+
     # 3. Read tools/list request
     line = sys.stdin.readline()
     if not line:

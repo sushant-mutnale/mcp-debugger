@@ -81,4 +81,3 @@ Example: `.agent/skills/brainstorming/SKILL.md`
 - **TDD always**: Write failing tests first, then code
 - **Systematic over ad-hoc**: Follow the skill process, don't guess
 - **Evidence over claims**: Verify before declaring success
-

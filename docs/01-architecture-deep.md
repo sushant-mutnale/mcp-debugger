@@ -23,14 +23,14 @@ graph TD
     Client[Client e.g. Claude Desktop] <-->|stdio| Proxy[mcp-debugger proxy]
     Proxy <-->|stdio| Server[Real MCP Server Subprocess]
     Proxy -->|async log| DB[(SQLite Local DB)]
-    
+
     subgraph Core Engine
         Proxy
         Validator[Protocol Validator]
         Recorder[Session Recorder]
         Replay[Replay Engine]
     end
-    
+
     Proxy -.->|validates| Validator
     Proxy -.->|records| Recorder
     Recorder --> DB

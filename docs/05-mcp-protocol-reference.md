@@ -224,4 +224,3 @@ The `ProtocolValidator` checks compliance based on the following specific rules:
 
 ### 4. Schema Validity
 * **Rule**: Tool definitions returned in a `tools/list` response result must have a valid `inputSchema` matching standard JSON Schema draft-07. Malformed schemas raise critical failures.
-

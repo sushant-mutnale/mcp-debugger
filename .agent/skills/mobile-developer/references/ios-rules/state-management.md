@@ -385,12 +385,12 @@ struct MyView: View {
     @State private var viewModel = ViewModel()
     @AppStorage("theme") private var theme = "light"
     @Environment(\.colorScheme) private var colorScheme
-    
+
     // Passed from parent - not private
     let title: String
     @Binding var isSelected: Bool
     @Bindable var user: User
-    
+
     var body: some View {
         // ...
     }

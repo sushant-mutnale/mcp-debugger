@@ -131,12 +131,12 @@ When you need different crops/compositions (not just resolutions):
   table, thead, tbody, tr, td {
     display: block;
   }
-  
+
   td::before {
     content: attr(data-label) ": ";
     font-weight: bold;
   }
-  
+
   thead { display: none; }
 }
 ```

@@ -1,43 +1,95 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "mcp-debugger"
 version = "0.1.0"
-description = "MCP proxy debugger – inspect, record, validate, and replay MCP sessions"
+description = "Transparent proxy to debug, record, validate, and replay MCP (Model Context Protocol) sessions"
 readme = "README.md"
 requires-python = ">=3.11"
-authors = [{ name = "Your Name", email = "you@example.com" }]
 license = { text = "MIT" }
+authors = [
+    { name = "Sushant Mutnale", email = "sushant.mutnale@gmail.com" }
+]
+maintainers = [
+    { name = "Sushant Mutnale", email = "sushant.mutnale@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Monitoring",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+]
 dependencies = [
     "typer>=0.9.0",
     "rich>=13.7.0",
     "pydantic>=2.5.0",
     "aiosqlite>=0.19.0",
     "jsonschema>=4.0.0",
+    "tomli>=2.0.1; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4.0", "pytest-asyncio>=0.21.0", "ruff>=0.1.0", "mypy>=1.7.0", "hypothesis>=6.0.0", "pytest-cov>=4.0.0"]
-export = [
+otlp = [
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",
     "opentelemetry-exporter-otlp>=1.20.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.12.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+    "hypothesis>=6.0.0",
+    "pytest-benchmark>=4.0.0",
+    "pre-commit>=3.0.0",
 ]
 
 [project.scripts]
 mcp-debugger = "mcp_debugger.cli:main"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[project.urls]
+Homepage = "https://github.com/sushant-mutnale/mcp-debugger"
+Repository = "https://github.com/sushant-mutnale/mcp-debugger"
+Documentation = "https://github.com/sushant-mutnale/mcp-debugger#readme"
+Issues = "https://github.com/sushant-mutnale/mcp-debugger/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_debugger"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/scripts",
+    "README.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+    "LICENSE",
+]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-exclude = [".agent", ".venv"]
+exclude = [".agent", ".venv", "src/mcp_debugger/version.py"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 ignore_missing_imports = true
+exclude = ["tests/", "scripts/"]
 
 [[tool.mypy.overrides]]
 module = "mcp_debugger.exporters.otlp_replay_exporter"
@@ -46,6 +98,9 @@ warn_unused_ignores = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-v --cov=src/mcp_debugger --cov-report=term --cov-report=html"
 markers = [
     "slow: marks tests as slow (deselect with '-m not slow')",
+    "integration: marks tests as integration tests (deselect with -m \"not integration\")",
+    "stress: marks tests as stress tests (slow)",
 ]

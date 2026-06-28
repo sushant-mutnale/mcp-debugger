@@ -47,8 +47,8 @@ This prevents overwhelming users while keeping power-user features accessible.
 - Use `autocomplete` attributes — they're free UX
 
 ```html
-<input 
-  type="email" 
+<input
+  type="email"
   autocomplete="email"
   placeholder="you@company.com"
   aria-describedby="email-hint"

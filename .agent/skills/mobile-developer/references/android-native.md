@@ -393,4 +393,3 @@ examples, and audit workflows for Android/Kotlin/Compose development.
 
 - [xml-to-compose-migration.md](android-rules/xml-to-compose-migration.md) — XML to Compose mapping tables
 - [rxjava-to-coroutines-migration.md](android-rules/rxjava-to-coroutines-migration.md) — RxJava to Coroutines/Flow
-
