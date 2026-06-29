@@ -7,7 +7,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.1.0] — 2025-06-25
+## [0.1.0] — 2026-06-29
 
 Initial release. Full-featured MCP session debugger with proxy recording, inspection, validation, replay, export, and analytics.
 

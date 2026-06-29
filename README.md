@@ -2,8 +2,9 @@
 
 > Transparent proxy to **debug, record, validate, and replay** MCP (Model Context Protocol) sessions.
 
+[![PyPI version](https://img.shields.io/pypi/v/mcp-debugger.svg)](https://pypi.org/project/mcp-debugger/)
 [![CI](https://github.com/sushant-mutnale/mcp-debugger/actions/workflows/ci.yml/badge.svg)](https://github.com/sushant-mutnale/mcp-debugger/actions/workflows/ci.yml)
-[![Python versions](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](https://pypi.org/project/mcp-debugger/)
+[![Python versions](https://img.shields.io/pypi/pyversions/mcp-debugger.svg)](https://pypi.org/project/mcp-debugger/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen)](https://github.com/sushant-mutnale/mcp-debugger/actions)
 
@@ -35,7 +36,7 @@ pip install mcp-debugger
 With optional OpenTelemetry (OTLP) export support:
 
 ```bash
-pip install "mcp-debugger[export]"
+pip install "mcp-debugger[otlp]"
 ```
 
 **Requirements:** Python 3.11+, Node.js (for `npx`-based MCP servers)

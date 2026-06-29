@@ -12,3 +12,7 @@ build/
 .coverage
 .coverage.*
 htmlcov/
+__pycache__/
+*.log
+*.tmp
+*.pid
