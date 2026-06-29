@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-debugger"
-version = "0.1.0"
+version = "0.1.1"
 description = "Transparent proxy to debug, record, validate, and replay MCP (Model Context Protocol) sessions"
 readme = "README.md"
 requires-python = ">=3.11"

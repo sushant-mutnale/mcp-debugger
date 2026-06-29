@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.1.1] — 2026-06-29
+
+### Added
+- Created programmatically generated terminal demo GIF and embedded in README.
+- Added scripts/generate_demo_gif.py.
+
+### Fixed
+- Fixed command prompt encoding and icon mapping issues for Windows environment.
+- Resolved PyPI release duplicate release issue by bumping to 0.1.1.
+
 ## [0.1.0] — 2026-06-29
 
 Initial release. Full-featured MCP session debugger with proxy recording, inspection, validation, replay, export, and analytics.
