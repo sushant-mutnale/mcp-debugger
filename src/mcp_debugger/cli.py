@@ -33,6 +33,26 @@ _os_name = os.name
 app = typer.Typer(help="MCP proxy debugger – inspect, record, validate, and replay MCP sessions")
 console = Console()
 
+# Check terminal encoding capabilities for safe emoji / symbol printing on legacy consoles (e.g. Windows cp1252)
+_encoding = console.encoding or "utf-8"
+
+def safe_char(char: str, fallback: str) -> str:
+    try:
+        char.encode(_encoding)
+        return char
+    except Exception:
+        return fallback
+
+EMOJI_SHINE = safe_char("✨", "")
+EMOJI_SEARCH = safe_char("🔍", "")
+EMOJI_WRENCH = safe_char("🔧", "")
+EMOJI_INFO = safe_char("💡", "")
+EMOJI_CHART = safe_char("📊", "")
+EMOJI_CHECK = safe_char("✓", "OK")
+EMOJI_CROSS = safe_char("✗", "FAIL")
+EMOJI_TIMEOUT = safe_char("⏱", "TIMEOUT")
+EMOJI_ERROR = safe_char("❌", "ERROR")
+
 
 @app.callback()
 def callback() -> None:
@@ -42,12 +62,7 @@ def callback() -> None:
 @app.command()
 def version() -> None:
     """Show version and exit."""
-    try:
-        # Check if the terminal encoding supports the emoji
-        "✨".encode(console.encoding or "utf-8")
-        title = "✨ MCP Debugger"
-    except Exception:
-        title = "MCP Debugger"
+    title = f"{EMOJI_SHINE} MCP Debugger".strip()
 
     console.print(
         Panel(
@@ -606,8 +621,9 @@ def inspect(
                         header.append(f"+{latency:.0f}ms", style="magenta bold")
 
                     if err_info is not None and err_info.get("suggestion"):
+                        info_lbl = f"{EMOJI_INFO} " if EMOJI_INFO else ""
                         suggestion_text = Text(
-                            f"\n💡 Suggestion: {err_info['suggestion']}", style="yellow italic"
+                            f"\n{info_lbl}Suggestion: {err_info['suggestion']}", style="yellow italic"
                         )
                         panel_content = Group(syntax_body, suggestion_text)
                     else:
@@ -744,11 +760,11 @@ def doctor() -> None:
     # 1. Python version check
     py_ver = f"{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}"
     if sys.version_info >= (3, 11):
-        lines.append(Text.assemble(("✓", "green"), f" Python version: {py_ver} (required >=3.11)"))
+        lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Python version: {py_ver} (required >=3.11)"))
     else:
         lines.append(
             Text.assemble(
-                ("✗", "red"), f" Python version check: Python 3.11+ required, found {py_ver}"
+                (EMOJI_CROSS, "red"), f" Python version check: Python 3.11+ required, found {py_ver}"
             )
         )
         critical_failed = True
@@ -760,31 +776,31 @@ def doctor() -> None:
         sqlite_ver = sqlite3.sqlite_version
         ver_parts = [int(x) for x in sqlite_ver.split(".")]
         if ver_parts >= [3, 35, 0]:
-            lines.append(Text.assemble(("✓", "green"), f" SQLite version: {sqlite_ver}"))
+            lines.append(Text.assemble((EMOJI_CHECK, "green"), f" SQLite version: {sqlite_ver}"))
         else:
             lines.append(
                 Text.assemble(
-                    ("✗", "red"),
+                    (EMOJI_CROSS, "red"),
                     f" SQLite version check: SQLite version < 3.35.0 (old), found {sqlite_ver}",
                 )
             )
             critical_failed = True
     except ImportError:
-        lines.append(Text.assemble(("✗", "red"), " SQLite check: SQLite not available"))
+        lines.append(Text.assemble((EMOJI_CROSS, "red"), " SQLite check: SQLite not available"))
         critical_failed = True
     except Exception as e:
-        lines.append(Text.assemble(("✗", "red"), f" SQLite check: SQLite check failed: {e}"))
+        lines.append(Text.assemble((EMOJI_CROSS, "red"), f" SQLite check: SQLite check failed: {e}"))
         critical_failed = True
 
     # 3. Database directory check
     db_dir = Path.home() / ".mcp-debugger"
     if db_dir.exists():
         if os.access(db_dir, os.W_OK):
-            lines.append(Text.assemble(("✓", "green"), f" Database directory: {db_dir} [writable]"))
+            lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Database directory: {db_dir} [writable]"))
         else:
             lines.append(
                 Text.assemble(
-                    ("✗", "red"),
+                    (EMOJI_CROSS, "red"),
                     f" Database directory: Cannot create ~/.mcp-debugger: permission denied at {db_dir}",
                 )
             )
@@ -792,7 +808,7 @@ def doctor() -> None:
     else:
         lines.append(
             Text.assemble(
-                ("✗", "red"),
+                (EMOJI_CROSS, "red"),
                 f" Database directory: {db_dir} [missing – suggest running: mkdir {db_dir}]",
             )
         )
@@ -808,25 +824,25 @@ def doctor() -> None:
                 if mode == 0o600:
                     lines.append(
                         Text.assemble(
-                            ("✓", "green"), f" Database file: {db_file_path} [permissions 600]"
+                            (EMOJI_CHECK, "green"), f" Database file: {db_file_path} [permissions 600]"
                         )
                     )
                 else:
                     lines.append(
                         Text.assemble(
-                            ("✗", "yellow"),
+                            (EMOJI_CROSS, "yellow"),
                             f" Database file permissions too open (found {oct(mode)[2:]}, want 600): {db_file_path}",
                         )
                     )
             except Exception as e:
                 lines.append(
                     Text.assemble(
-                        ("✗", "yellow"),
+                        (EMOJI_CROSS, "yellow"),
                         f" Database file check: Failed to check DB file permissions: {e}",
                     )
                 )
         else:
-            lines.append(Text.assemble(("✓", "green"), f" Database file: {db_file_path} [exists]"))
+            lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Database file: {db_file_path} [exists]"))
 
         # Check schema version
         try:
@@ -838,39 +854,39 @@ def doctor() -> None:
             conn.close()
 
             if user_ver == 1:
-                lines.append(Text.assemble(("✓", "green"), f" Database schema version: {user_ver}"))
+                lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Database schema version: {user_ver}"))
             else:
                 lines.append(
                     Text.assemble(
-                        ("✗", "red"),
+                        (EMOJI_CROSS, "red"),
                         f" Database schema check: Schema version mismatch: expected 1, got {user_ver}",
                     )
                 )
                 critical_failed = True
         except Exception as e:
-            lines.append(Text.assemble(("✗", "red"), f" Database schema check failed: {e}"))
+            lines.append(Text.assemble((EMOJI_CROSS, "red"), f" Database schema check failed: {e}"))
             critical_failed = True
     else:
         lines.append(
             Text.assemble(
-                ("✓", "green"),
+                (EMOJI_CHECK, "green"),
                 " Database file: no database file found yet (will be created on first proxy run)",
             )
         )
-        lines.append(Text.assemble(("✓", "green"), " Database schema version: not yet created"))
+        lines.append(Text.assemble((EMOJI_CHECK, "green"), " Database schema version: not yet created"))
 
     # 5. npx check
     npx_path = shutil.which("npx")
     if npx_path:
         lines.append(
             Text.assemble(
-                ("✓", "green"), f" npx command found: {npx_path} (for Node.js MCP servers)"
+                (EMOJI_CHECK, "green"), f" npx command found: {npx_path} (for Node.js MCP servers)"
             )
         )
     else:
         lines.append(
             Text.assemble(
-                ("✗", "yellow"),
+                (EMOJI_CROSS, "yellow"),
                 " npx command check: npx not found – MCP servers requiring Node.js may fail",
             )
         )
@@ -878,11 +894,11 @@ def doctor() -> None:
     # 6. node check
     node_path = shutil.which("node")
     if node_path:
-        lines.append(Text.assemble(("✓", "green"), f" Node.js found: {node_path}"))
+        lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Node.js found: {node_path}"))
     else:
         lines.append(
             Text.assemble(
-                ("✗", "yellow"),
+                (EMOJI_CROSS, "yellow"),
                 " Node.js not found – some MCP servers require Node.js",
             )
         )
@@ -890,16 +906,16 @@ def doctor() -> None:
     # 7. git check
     git_path = shutil.which("git")
     if git_path:
-        lines.append(Text.assemble(("✓", "green"), f" git command found: {git_path}"))
+        lines.append(Text.assemble((EMOJI_CHECK, "green"), f" git command found: {git_path}"))
     else:
-        lines.append(Text.assemble(("✓", "green"), " git not found (optional)"))
+        lines.append(Text.assemble((EMOJI_CHECK, "green"), " git not found (optional)"))
 
     # 8. PATH check
     path_dirs = os.environ.get("PATH", "").split(os.pathsep)
     path_summary = ", ".join(path_dirs[:3])
     if len(path_dirs) > 3:
         path_summary += ", ..."
-    lines.append(Text.assemble(("✓", "green"), f" PATH includes: {path_summary}"))
+    lines.append(Text.assemble((EMOJI_CHECK, "green"), f" PATH includes: {path_summary}"))
 
     # 9. Config file check
     from mcp_debugger.config import Config, default_config_path
@@ -907,16 +923,16 @@ def doctor() -> None:
     cfg_path = default_config_path()
     if not cfg_path.exists():
         lines.append(
-            Text.assemble(("✓", "green"), f" Config file: {cfg_path} [not found – using defaults]")
+            Text.assemble((EMOJI_CHECK, "green"), f" Config file: {cfg_path} [not found – using defaults]")
         )
     else:
         try:
             _cfg_check = Config(path=cfg_path)
             _cfg_check.load()
-            lines.append(Text.assemble(("✓", "green"), f" Config file: {cfg_path} [valid]"))
+            lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Config file: {cfg_path} [valid]"))
         except Exception as cfg_err:
             lines.append(
-                Text.assemble(("✗", "yellow"), f" Config file: {cfg_path} [invalid: {cfg_err}]")
+                Text.assemble((EMOJI_CROSS, "yellow"), f" Config file: {cfg_path} [invalid: {cfg_err}]")
             )
 
     panel_content = Text()
@@ -925,10 +941,11 @@ def doctor() -> None:
             panel_content.append("\n")
         panel_content.append(line)
 
+    title = f"{EMOJI_SEARCH} MCP Debugger Environment Check".strip()
     console.print(
         Panel(
             panel_content,
-            title="🔍 MCP Debugger Environment Check",
+            title=title,
             title_align="left",
             border_style="red" if critical_failed else "green",
             safe_box=True,
@@ -1009,7 +1026,8 @@ def validate(
 
         if server is not None:
             if not json_mode:
-                console.print(f"🔍 Validating live server: {server}")
+                search_lbl = f"{EMOJI_SEARCH} " if EMOJI_SEARCH else ""
+                console.print(f"{search_lbl}Validating live server: {server}")
 
             try:
                 sid, results = await run_live_validation(server)
@@ -1035,7 +1053,8 @@ def validate(
                     sys.exit(1)
 
                 if not json_mode:
-                    console.print(f"🔍 Validating recorded session #{session_id}")
+                    search_lbl = f"{EMOJI_SEARCH} " if EMOJI_SEARCH else ""
+                    console.print(f"{search_lbl}Validating recorded session #{session_id}")
 
                 try:
                     validator = ProtocolValidator()
@@ -1183,10 +1202,11 @@ def tools(
                     print(json.dumps(schema_dict, indent=2))
                 else:
                     syntax_schema = Syntax(json.dumps(schema_dict, indent=2), "json")
+                    title = f"{EMOJI_WRENCH} Tool Schema: {detail}".strip()
                     console.print(
                         Panel(
                             syntax_schema,
-                            title=f"🔧 Tool Schema: {detail}",
+                            title=title,
                             title_align="left",
                             border_style="magenta",
                             safe_box=True,
@@ -1402,7 +1422,8 @@ def stats(
         )
 
         # Top Tools Table
-        console.print("\n📊 [bold]Top Tools[/bold]")
+        chart_lbl = f"{EMOJI_CHART} " if EMOJI_CHART else ""
+        console.print(f"\n{chart_lbl}[bold]Top Tools[/bold]")
         if not stats_data.top_tools:
             console.print("No tools called in this session.")
         else:
@@ -1556,7 +1577,8 @@ def compare(
         )
 
         # Tool Call Changes Table
-        console.print("📊 [bold]Tool Call Changes[/bold]")
+        chart_lbl = f"{EMOJI_CHART} " if EMOJI_CHART else ""
+        console.print(f"{chart_lbl}[bold]Tool Call Changes[/bold]")
         if not comparison.tool_changes:
             console.print("No tool call changes recorded.")
         else:
@@ -1648,7 +1670,8 @@ def compare(
         if warnings:
             summary_text += " [yellow]Verify changes: " + ", ".join(warnings) + ".[/yellow]"
 
-        console.print(f"💡 [bold]Summary:[/bold] {summary_text}")
+        info_lbl = f"{EMOJI_INFO} " if EMOJI_INFO else ""
+        console.print(f"{info_lbl}[bold]Summary:[/bold] {summary_text}")
 
     try:
         asyncio.run(_run())
@@ -2054,14 +2077,14 @@ def replay(
                 f"Duration: {duration:.2f} seconds",
                 "─" * 65,
                 f"Total messages replayed: {result.total_messages_replayed}",
-                f"[green]✓ Successful matches: {successful_matches}[/green]",
-                f"[red]✗ Mismatches: {mismatches}[/red]"
+                f"[green]{EMOJI_CHECK} Successful matches: {successful_matches}[/green]",
+                f"[red]{EMOJI_CROSS} Mismatches: {mismatches}[/red]"
                 if mismatches
-                else f"✗ Mismatches: {mismatches}",
-                f"[yellow]⏱ Timeouts: {timeouts}[/yellow]"
+                else f"{EMOJI_CROSS} Mismatches: {mismatches}",
+                f"[yellow]{EMOJI_TIMEOUT} Timeouts: {timeouts}[/yellow]"
                 if timeouts
-                else f"⏱ Timeouts: {timeouts}",
-                f"[red]❌ Errors: {errors}[/red]" if errors else f"❌ Errors: {errors}",
+                else f"{EMOJI_TIMEOUT} Timeouts: {timeouts}",
+                f"[red]{EMOJI_ERROR} Errors: {errors}[/red]" if errors else f"{EMOJI_ERROR} Errors: {errors}",
             ]
             summary_panel = Panel(
                 "\n".join(summary_lines),
