@@ -2,6 +2,8 @@
 
 > Transparent proxy to **debug, record, validate, and replay** MCP (Model Context Protocol) sessions.
 
+![mcp-debugger demo](docs/demo.gif)
+
 [![PyPI version](https://img.shields.io/pypi/v/mcp-debugger.svg)](https://pypi.org/project/mcp-debugger/)
 [![CI](https://github.com/sushant-mutnale/mcp-debugger/actions/workflows/ci.yml/badge.svg)](https://github.com/sushant-mutnale/mcp-debugger/actions/workflows/ci.yml)
 [![Python versions](https://img.shields.io/pypi/pyversions/mcp-debugger.svg)](https://pypi.org/project/mcp-debugger/)
