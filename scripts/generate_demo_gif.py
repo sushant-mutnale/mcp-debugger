@@ -147,73 +147,132 @@ def main():
     frames.append((create_frame(doc_panel, exp_2), 2500))
     
     # ----------------------------------------------------
-    # PHASE 3: Validate MCP Server
+    # PHASE 3: Proxy — Record a live session
     # ----------------------------------------------------
-    exp_3 = "✅ Step 3: Validate live MCP server compliance against spec"
-    # Scroll up to hide install output, keep doctor
+    exp_3 = "🔴 Step 3: Record live MCP traffic with the transparent proxy"
     prompt_3 = [("C:\\Users\\sushant> ", PROMPT_COLOR)]
-    lines_3 = doc_panel[-6:] + [prompt_3]
+    lines_3 = doc_panel[-5:] + [prompt_3]
     frames.append((create_frame(lines_3, exp_3), 200))
-    
-    cmd_3 = "mcp-debugger validate --server \"npx -y @modelcontextprotocol/server-filesystem C:\\temp\""
+
+    cmd_3 = "mcp-debugger proxy --server \"npx -y @modelcontextprotocol/server-filesystem C:\\temp\" --name my-session"
     for i in range(len(cmd_3) + 1):
         current_prompt = [("C:\\Users\\sushant> ", PROMPT_COLOR), (cmd_3[:i], CMD_COLOR)]
         if i < len(cmd_3):
             current_prompt.append(("_", CMD_COLOR))
-        frames.append((create_frame(doc_panel[-6:] + [current_prompt], exp_3), 50))
-        
+        frames.append((create_frame(doc_panel[-5:] + [current_prompt], exp_3), 45))
+
     last_prompt_3 = [("C:\\Users\\sushant> ", PROMPT_COLOR), (cmd_3, CMD_COLOR)]
-    frames.append((create_frame(doc_panel[-6:] + [last_prompt_3], exp_3), 400))
-    
-    # Run validation step-by-step
-    val_lines_base = doc_panel[-6:] + [last_prompt_3]
-    
-    # Step 3.1
-    l_1 = val_lines_base + ["Validating live server: npx -y @modelcontextprotocol/server-filesystem C:\\temp"]
-    frames.append((create_frame(l_1, exp_3), 300))
-    # Step 3.2
-    l_2 = l_1 + ["  - Handshake protocol compliance... [PASS]"]
-    frames.append((create_frame(l_2, exp_3), 300))
-    # Step 3.3
-    l_3 = l_2 + ["  - Schema validation of definitions... [PASS]"]
-    frames.append((create_frame(l_3, exp_3), 300))
-    # Step 3.4
-    l_4 = l_3 + [
-        [("  - Test initialization check... ", TEXT_COLOR), ("OK", GREEN_COLOR)],
-        [("Protocol validation: SUCCESS (0 errors, 0 warnings)", GREEN_COLOR)]
+    frames.append((create_frame(doc_panel[-5:] + [last_prompt_3], exp_3), 400))
+
+    proxy_lines = doc_panel[-5:] + [
+        last_prompt_3,
+        [("Proxy listening — recording session: ", TEXT_COLOR), ("my-session", CYAN_COLOR)],
+        "  [client --> server]  initialize",
+        "  [server --> client]  initialize response",
+        "  [client --> server]  tools/list",
+        "  [server --> client]  tools/list response  (3 tools found)",
+        "  [client --> server]  tools/call  read_file",
+        "  [server --> client]  tools/call result",
+        [("  ^C  Session saved. ID: ", TEXT_COLOR), ("#1", YELLOW_COLOR), ("  (8 messages)", TEXT_COLOR)],
     ]
-    frames.append((create_frame(l_4, exp_3), 2500))
-    
+    frames.append((create_frame(proxy_lines, exp_3), 2800))
+
     # ----------------------------------------------------
-    # PHASE 4: Replay Session for Regression Tests
+    # PHASE 4: Inspect — Browse recorded messages
     # ----------------------------------------------------
-    exp_4 = "🔄 Step 4: Replay recorded sessions to verify response changes"
+    exp_4 = "🔍 Step 4: Inspect every JSON-RPC message between client and server"
     prompt_4 = [("C:\\Users\\sushant> ", PROMPT_COLOR)]
-    lines_4 = l_4[-6:] + [prompt_4]
+    lines_4 = proxy_lines[-6:] + [prompt_4]
     frames.append((create_frame(lines_4, exp_4), 200))
-    
-    cmd_4 = "mcp-debugger replay 1 --server \"npx -y @modelcontextprotocol/server-filesystem C:\\temp\""
+
+    cmd_4 = "mcp-debugger inspect 1"
     for i in range(len(cmd_4) + 1):
         current_prompt = [("C:\\Users\\sushant> ", PROMPT_COLOR), (cmd_4[:i], CMD_COLOR)]
         if i < len(cmd_4):
             current_prompt.append(("_", CMD_COLOR))
-        frames.append((create_frame(l_4[-6:] + [current_prompt], exp_4), 50))
-        
+        frames.append((create_frame(proxy_lines[-6:] + [current_prompt], exp_4), 80))
+
     last_prompt_4 = [("C:\\Users\\sushant> ", PROMPT_COLOR), (cmd_4, CMD_COLOR)]
-    frames.append((create_frame(l_4[-6:] + [last_prompt_4], exp_4), 400))
-    
-    replay_lines = l_4[-6:] + [
+    frames.append((create_frame(proxy_lines[-6:] + [last_prompt_4], exp_4), 400))
+
+    # Inspect panel — show JSON-RPC message details
+    inspect_lines = [
         last_prompt_4,
+        [("┌─ ", BORDER_COLOR), ("Session #1  my-session  (8 messages)", CYAN_COLOR), (" ─────────────┐", BORDER_COLOR)],
+        [("│ ", BORDER_COLOR), ("#1 ", YELLOW_COLOR), ("client-->server  ", TEXT_COLOR), ("initialize", GREEN_COLOR), ("                          │", BORDER_COLOR)],
+        [("│   {\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1,...}           │", TEXT_COLOR)],
+        [("│ ", BORDER_COLOR), ("#2 ", YELLOW_COLOR), ("server-->client  ", TEXT_COLOR), ("initialize result", GREEN_COLOR), ("                    │", BORDER_COLOR)],
+        [("│   {\"protocolVersion\":\"2024-11-05\",\"capabilities\":{...}}         │", TEXT_COLOR)],
+        [("│ ", BORDER_COLOR), ("#3 ", YELLOW_COLOR), ("client-->server  ", TEXT_COLOR), ("tools/list", GREEN_COLOR), ("                           │", BORDER_COLOR)],
+        [("│   {\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":2}               │", TEXT_COLOR)],
+        [("│ ", BORDER_COLOR), ("#5 ", YELLOW_COLOR), ("client-->server  ", TEXT_COLOR), ("tools/call  ", GREEN_COLOR), ("read_file", CYAN_COLOR), ("              │", BORDER_COLOR)],
+        [("│   {\"name\":\"read_file\",\"arguments\":{\"path\":\"C:\\\\temp\\\\data.txt\"}} │", TEXT_COLOR)],
+        [("└─────────────────────────────────────────────────────────────┘", BORDER_COLOR)],
+    ]
+    frames.append((create_frame(inspect_lines, exp_4), 3200))
+
+    # ----------------------------------------------------
+    # PHASE 5: Validate MCP Server
+    # ----------------------------------------------------
+    exp_5 = "✅ Step 5: Validate live MCP server compliance against spec"
+    prompt_5 = [("C:\\Users\\sushant> ", PROMPT_COLOR)]
+    lines_5 = inspect_lines[-6:] + [prompt_5]
+    frames.append((create_frame(lines_5, exp_5), 200))
+
+    cmd_5 = "mcp-debugger validate --server \"npx -y @modelcontextprotocol/server-filesystem C:\\temp\""
+    for i in range(len(cmd_5) + 1):
+        current_prompt = [("C:\\Users\\sushant> ", PROMPT_COLOR), (cmd_5[:i], CMD_COLOR)]
+        if i < len(cmd_5):
+            current_prompt.append(("_", CMD_COLOR))
+        frames.append((create_frame(inspect_lines[-6:] + [current_prompt], exp_5), 50))
+
+    last_prompt_5 = [("C:\\Users\\sushant> ", PROMPT_COLOR), (cmd_5, CMD_COLOR)]
+    frames.append((create_frame(inspect_lines[-6:] + [last_prompt_5], exp_5), 400))
+
+    val_lines_base = inspect_lines[-6:] + [last_prompt_5]
+    l_1 = val_lines_base + ["Validating live server: npx -y @modelcontextprotocol/server-filesystem C:\\temp"]
+    frames.append((create_frame(l_1, exp_5), 300))
+    l_2 = l_1 + ["  - Handshake protocol compliance... [PASS]"]
+    frames.append((create_frame(l_2, exp_5), 300))
+    l_3 = l_2 + ["  - Schema validation of tool definitions... [PASS]"]
+    frames.append((create_frame(l_3, exp_5), 300))
+    l_4 = l_3 + [
+        [("  - Test initialization check... ", TEXT_COLOR), ("OK", GREEN_COLOR)],
+        [("Protocol validation: SUCCESS (0 errors, 0 warnings)", GREEN_COLOR)]
+    ]
+    frames.append((create_frame(l_4, exp_5), 2500))
+    
+    # ----------------------------------------------------
+    # PHASE 6: Replay Session for Regression Tests
+    # ----------------------------------------------------
+    exp_6 = "🔄 Step 6: Replay recorded sessions to verify response changes"
+    prompt_6 = [("C:\\Users\\sushant> ", PROMPT_COLOR)]
+    lines_6 = l_4[-6:] + [prompt_6]
+    frames.append((create_frame(lines_6, exp_6), 200))
+
+    cmd_6 = "mcp-debugger replay 1 --server \"npx -y @modelcontextprotocol/server-filesystem C:\\temp\""
+    for i in range(len(cmd_6) + 1):
+        current_prompt = [("C:\\Users\\sushant> ", PROMPT_COLOR), (cmd_6[:i], CMD_COLOR)]
+        if i < len(cmd_6):
+            current_prompt.append(("_", CMD_COLOR))
+        frames.append((create_frame(l_4[-6:] + [current_prompt], exp_6), 50))
+
+    last_prompt_6 = [("C:\\Users\\sushant> ", PROMPT_COLOR), (cmd_6, CMD_COLOR)]
+    frames.append((create_frame(l_4[-6:] + [last_prompt_6], exp_6), 400))
+
+    replay_lines = l_4[-6:] + [
+        last_prompt_6,
         "Replaying session #1 against target server...",
         "Replaying tool call: list_templates... [MATCH]",
         "Replaying tool call: get_template... [MATCH]",
         [("┌─ ", BORDER_COLOR), ("Message Replay Summary", CYAN_COLOR), (" ─────────────────────────────┐", BORDER_COLOR)],
-        [("│ Total messages replayed: 12                                 │", TEXT_COLOR)],
-        [("│ ", TEXT_COLOR), ("OK", GREEN_COLOR), (" Successful matches: 12                                     │", TEXT_COLOR)],
-        [("│ ", TEXT_COLOR), ("FAIL", RED_COLOR), (" Mismatches: 0                                             │", TEXT_COLOR)],
+        [("│ Total messages replayed: 8                                  │", TEXT_COLOR)],
+        [("│ ", TEXT_COLOR), ("OK", GREEN_COLOR), (" Successful matches: 8                                      │", TEXT_COLOR)],
+        [("│ ", TEXT_COLOR), ("FAIL", RED_COLOR), (" Mismatches: 0                                              │", TEXT_COLOR)],
         [("└─────────────────────────────────────────────────────────────┘", BORDER_COLOR)]
     ]
-    frames.append((create_frame(replay_lines, exp_4), 3000))
+    frames.append((create_frame(replay_lines, exp_6), 3000))
+
     
     # Save GIF
     gif_path = "docs/demo.gif"
