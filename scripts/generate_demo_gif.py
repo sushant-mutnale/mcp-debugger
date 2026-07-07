@@ -1,5 +1,4 @@
 import os
-import sys
 from PIL import Image, ImageDraw, ImageFont
 
 # Set up dimensions and colors
