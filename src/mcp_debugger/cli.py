@@ -36,12 +36,14 @@ console = Console()
 # Check terminal encoding capabilities for safe emoji / symbol printing on legacy consoles (e.g. Windows cp1252)
 _encoding = console.encoding or "utf-8"
 
+
 def safe_char(char: str, fallback: str) -> str:
     try:
         char.encode(_encoding)
         return char
     except Exception:
         return fallback
+
 
 EMOJI_SHINE = safe_char("✨", "")
 EMOJI_SEARCH = safe_char("🔍", "")
@@ -623,7 +625,8 @@ def inspect(
                     if err_info is not None and err_info.get("suggestion"):
                         info_lbl = f"{EMOJI_INFO} " if EMOJI_INFO else ""
                         suggestion_text = Text(
-                            f"\n{info_lbl}Suggestion: {err_info['suggestion']}", style="yellow italic"
+                            f"\n{info_lbl}Suggestion: {err_info['suggestion']}",
+                            style="yellow italic",
                         )
                         panel_content = Group(syntax_body, suggestion_text)
                     else:
@@ -760,11 +763,14 @@ def doctor() -> None:
     # 1. Python version check
     py_ver = f"{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}"
     if sys.version_info >= (3, 11):
-        lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Python version: {py_ver} (required >=3.11)"))
+        lines.append(
+            Text.assemble((EMOJI_CHECK, "green"), f" Python version: {py_ver} (required >=3.11)")
+        )
     else:
         lines.append(
             Text.assemble(
-                (EMOJI_CROSS, "red"), f" Python version check: Python 3.11+ required, found {py_ver}"
+                (EMOJI_CROSS, "red"),
+                f" Python version check: Python 3.11+ required, found {py_ver}",
             )
         )
         critical_failed = True
@@ -789,14 +795,18 @@ def doctor() -> None:
         lines.append(Text.assemble((EMOJI_CROSS, "red"), " SQLite check: SQLite not available"))
         critical_failed = True
     except Exception as e:
-        lines.append(Text.assemble((EMOJI_CROSS, "red"), f" SQLite check: SQLite check failed: {e}"))
+        lines.append(
+            Text.assemble((EMOJI_CROSS, "red"), f" SQLite check: SQLite check failed: {e}")
+        )
         critical_failed = True
 
     # 3. Database directory check
     db_dir = Path.home() / ".mcp-debugger"
     if db_dir.exists():
         if os.access(db_dir, os.W_OK):
-            lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Database directory: {db_dir} [writable]"))
+            lines.append(
+                Text.assemble((EMOJI_CHECK, "green"), f" Database directory: {db_dir} [writable]")
+            )
         else:
             lines.append(
                 Text.assemble(
@@ -824,7 +834,8 @@ def doctor() -> None:
                 if mode == 0o600:
                     lines.append(
                         Text.assemble(
-                            (EMOJI_CHECK, "green"), f" Database file: {db_file_path} [permissions 600]"
+                            (EMOJI_CHECK, "green"),
+                            f" Database file: {db_file_path} [permissions 600]",
                         )
                     )
                 else:
@@ -842,7 +853,9 @@ def doctor() -> None:
                     )
                 )
         else:
-            lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Database file: {db_file_path} [exists]"))
+            lines.append(
+                Text.assemble((EMOJI_CHECK, "green"), f" Database file: {db_file_path} [exists]")
+            )
 
         # Check schema version
         try:
@@ -854,7 +867,9 @@ def doctor() -> None:
             conn.close()
 
             if user_ver == 1:
-                lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Database schema version: {user_ver}"))
+                lines.append(
+                    Text.assemble((EMOJI_CHECK, "green"), f" Database schema version: {user_ver}")
+                )
             else:
                 lines.append(
                     Text.assemble(
@@ -873,7 +888,9 @@ def doctor() -> None:
                 " Database file: no database file found yet (will be created on first proxy run)",
             )
         )
-        lines.append(Text.assemble((EMOJI_CHECK, "green"), " Database schema version: not yet created"))
+        lines.append(
+            Text.assemble((EMOJI_CHECK, "green"), " Database schema version: not yet created")
+        )
 
     # 5. npx check
     npx_path = shutil.which("npx")
@@ -923,7 +940,9 @@ def doctor() -> None:
     cfg_path = default_config_path()
     if not cfg_path.exists():
         lines.append(
-            Text.assemble((EMOJI_CHECK, "green"), f" Config file: {cfg_path} [not found – using defaults]")
+            Text.assemble(
+                (EMOJI_CHECK, "green"), f" Config file: {cfg_path} [not found – using defaults]"
+            )
         )
     else:
         try:
@@ -932,7 +951,9 @@ def doctor() -> None:
             lines.append(Text.assemble((EMOJI_CHECK, "green"), f" Config file: {cfg_path} [valid]"))
         except Exception as cfg_err:
             lines.append(
-                Text.assemble((EMOJI_CROSS, "yellow"), f" Config file: {cfg_path} [invalid: {cfg_err}]")
+                Text.assemble(
+                    (EMOJI_CROSS, "yellow"), f" Config file: {cfg_path} [invalid: {cfg_err}]"
+                )
             )
 
     panel_content = Text()
@@ -2084,7 +2105,9 @@ def replay(
                 f"[yellow]{EMOJI_TIMEOUT} Timeouts: {timeouts}[/yellow]"
                 if timeouts
                 else f"{EMOJI_TIMEOUT} Timeouts: {timeouts}",
-                f"[red]{EMOJI_ERROR} Errors: {errors}[/red]" if errors else f"{EMOJI_ERROR} Errors: {errors}",
+                f"[red]{EMOJI_ERROR} Errors: {errors}[/red]"
+                if errors
+                else f"{EMOJI_ERROR} Errors: {errors}",
             ]
             summary_panel = Panel(
                 "\n".join(summary_lines),
