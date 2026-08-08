@@ -5,16 +5,16 @@ import json
 import logging
 import shlex
 import sys
-from typing import Any, List, Optional
+from typing import Any
 
-from mcp_debugger.protocol.schemas import parse_jsonrpc_message
 from mcp_debugger.protocol.error_classifier import ErrorClassifier
+from mcp_debugger.protocol.schemas import parse_jsonrpc_message
 from mcp_debugger.storage.database import Database
 
 logger = logging.getLogger("mcp_debugger.proxy")
 
 
-def split_command(cmd: str) -> List[str]:
+def split_command(cmd: str) -> list[str]:
     """Parse a server command string into arguments, handling Windows path slashes and quotes."""
     return shlex.split(cmd, posix=True)
 
@@ -34,12 +34,12 @@ class StdioProxy:
         self.database = database
         self.session_id = session_id
         self.verbose = verbose
-        self.process: Optional[asyncio.subprocess.Process] = None
-        self.process_exit_code: Optional[int] = None
-        self._running_tasks: List[asyncio.Task[Any]] = []
+        self.process: asyncio.subprocess.Process | None = None
+        self.process_exit_code: int | None = None
+        self._running_tasks: list[asyncio.Task[Any]] = []
 
     async def _read_stdin_to_queue(
-        self, queue: asyncio.Queue[Optional[str]], loop: asyncio.AbstractEventLoop
+        self, queue: asyncio.Queue[str | None], loop: asyncio.AbstractEventLoop
     ) -> None:
         """Read lines from sys.stdin asynchronously. Fallback to a background thread if not supported."""
         import os
@@ -138,9 +138,9 @@ class StdioProxy:
 
         if self.process and self.process.stdout:
             # Increase StreamReader limit to 10MB to handle large tool outputs and schemas
-            setattr(self.process.stdout, "_limit", 10 * 1024 * 1024)
+            self.process.stdout._limit = 10 * 1024 * 1024
 
-        queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
         # Start stdin thread reader
@@ -166,7 +166,7 @@ class StdioProxy:
 
         return self.process_exit_code if self.process_exit_code is not None else 0
 
-    async def _client_to_server_loop(self, queue: asyncio.Queue[Optional[str]]) -> None:
+    async def _client_to_server_loop(self, queue: asyncio.Queue[str | None]) -> None:
         """Loop reading from client standard input queue and forwarding to server stdin."""
         try:
             while True:
@@ -291,7 +291,7 @@ class StdioProxy:
                         for t in tools_list:
                             await self.database.log_tool(self.session_id, t)
 
-            message_id: Optional[int] = None
+            message_id: int | None = None
             try:
                 # Attempt standard Pydantic schema validation
                 msg = parse_jsonrpc_message(payload)
@@ -384,7 +384,7 @@ class StdioProxy:
                 self.process.terminate()
                 try:
                     await asyncio.wait_for(self.process.wait(), timeout=3.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning("Subprocess did not terminate gracefully. Killing it...")
                     self.process.kill()
                     await self.process.wait()

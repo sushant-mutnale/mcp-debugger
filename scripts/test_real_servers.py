@@ -22,7 +22,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Force UTF-8 output on Windows to avoid charmap encoding errors
 if sys.platform == "win32":
@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 # Server catalogue
 # ---------------------------------------------------------------------------
 
-SERVERS: Dict[str, Dict[str, Any]] = {
+SERVERS: dict[str, dict[str, Any]] = {
     "filesystem": {
         "command": "npx -y @modelcontextprotocol/server-filesystem {tmpdir}",
         "env_required": [],
@@ -102,14 +102,14 @@ async def _read_response(
     stdout: asyncio.StreamReader,
     expected_id: int,
     timeout: float = 15.0,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Read lines from stdout until we find the response matching expected_id."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         remaining = deadline - time.monotonic()
         try:
             line_bytes = await asyncio.wait_for(stdout.readline(), timeout=min(remaining, 5.0))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
         if not line_bytes:
             return None
@@ -137,9 +137,9 @@ class ServerTestResult:
         self.name = name
         self.status = "SKIP"  # PASS | FAIL | SKIP
         self.reason = ""
-        self.tools_found: List[str] = []
-        self.tool_calls: Dict[str, str] = {}  # tool_name -> PASS|FAIL
-        self.issues: List[str] = []
+        self.tools_found: list[str] = []
+        self.tool_calls: dict[str, str] = {}  # tool_name -> PASS|FAIL
+        self.issues: list[str] = []
 
     def __str__(self) -> str:
         lines = [f"\n{'=' * 60}", f"  Server : {self.name}", f"  Status : {self.status}"]
@@ -157,7 +157,7 @@ class ServerTestResult:
 
 async def run_server_test(
     name: str,
-    config: Dict[str, Any],
+    config: dict[str, Any],
     tmpdir: str,
     tmpfile: str,
 ) -> ServerTestResult:
@@ -174,7 +174,7 @@ async def run_server_test(
     command = config["command"].format(tmpdir=tmpdir, tmpfile=tmpfile)
     startup_wait: float = config.get("startup_wait", 10.0)
     step_timeout: float = config.get("step_timeout", 15.0)
-    tool_args_map: Dict[str, Any] = {
+    tool_args_map: dict[str, Any] = {
         k: json.loads(
             json.dumps(v)
             .replace("{tmpdir}", tmpdir.replace("\\", "/"))
@@ -202,7 +202,7 @@ async def run_server_test(
     assert process.stdin and process.stdout
 
     # Increase StreamReader limit to 10MB to handle large tool outputs and schemas
-    setattr(process.stdout, "_limit", 10 * 1024 * 1024)
+    process.stdout._limit = 10 * 1024 * 1024
 
     req_id = 1
 
@@ -336,7 +336,7 @@ async def main(args: argparse.Namespace) -> int:
 
         if args.server:
             # Custom command
-            cfg: Dict[str, Any] = {
+            cfg: dict[str, Any] = {
                 "command": args.server,
                 "env_required": [],
                 "tool_args": {},
@@ -379,7 +379,7 @@ async def main(args: argparse.Namespace) -> int:
     return 0 if fail_count == 0 else 1
 
 
-def _write_markdown_report(results: List[ServerTestResult], path: str) -> None:
+def _write_markdown_report(results: list[ServerTestResult], path: str) -> None:
     lines = ["# MCP Server Compatibility Report\n"]
     lines.append("| Server | Status | Tools Found | Issues |")
     lines.append("| :----- | :----: | :---------- | :----- |")

@@ -1,10 +1,10 @@
 """Protocol compliance validator for MCP messages and sessions."""
 
 import json
-from typing import Any, Dict, List, Optional, Set
-from pydantic import BaseModel, Field
+from typing import Any
 
 import jsonschema
+from pydantic import BaseModel, Field
 
 from mcp_debugger.storage.database import Database
 
@@ -16,8 +16,8 @@ class ValidationResult(BaseModel):
     passed: bool = Field(..., description="Whether the check succeeded")
     severity: str = Field(..., description="Severity level: 'critical', 'warning', or 'info'")
     message: str = Field(..., description="Human-readable explanation of the validation result")
-    suggestion: Optional[str] = Field(default=None, description="Optional remediation advice")
-    context: Optional[Dict[str, Any]] = Field(
+    suggestion: str | None = Field(default=None, description="Optional remediation advice")
+    context: dict[str, Any] | None = Field(
         default=None, description="Contextual message payload"
     )
 
@@ -25,7 +25,7 @@ class ValidationResult(BaseModel):
 class ProtocolValidator:
     """Validator engine for ensuring MCP specification compliance."""
 
-    STANDARD_METHODS: Set[str] = {
+    STANDARD_METHODS: set[str] = {
         # Client -> Server requests
         "initialize",
         "tools/list",
@@ -52,7 +52,7 @@ class ProtocolValidator:
         "ping",
     }
 
-    TYPO_CORRECTIONS: Dict[str, str] = {
+    TYPO_CORRECTIONS: dict[str, str] = {
         "tool/list": "tools/list",
         "tool/call": "tools/call",
         "tools/list-changed": "notifications/tools/list-changed",
@@ -62,7 +62,7 @@ class ProtocolValidator:
         "initialized": "notifications/initialized",
     }
 
-    CAPABILITY_REQUIRED_FOR_METHOD: Dict[str, str] = {
+    CAPABILITY_REQUIRED_FOR_METHOD: dict[str, str] = {
         "tools/list": "tools",
         "tools/call": "tools",
         "resources/list": "resources",
@@ -77,10 +77,10 @@ class ProtocolValidator:
         self.version = protocol_version
 
     def validate_message(
-        self, message: Dict[str, Any], direction: str, context: Optional[Dict[str, Any]] = None
-    ) -> List[ValidationResult]:
+        self, message: dict[str, Any], direction: str, context: dict[str, Any] | None = None
+    ) -> list[ValidationResult]:
         """Validate a single MCP message envelope and payload in isolation."""
-        results: List[ValidationResult] = []
+        results: list[ValidationResult] = []
 
         # 1. Check JSON-RPC version
         jsonrpc = message.get("jsonrpc")
@@ -90,7 +90,7 @@ class ProtocolValidator:
                     rule_name="jsonrpc_version",
                     passed=False,
                     severity="critical",
-                    message=f"JSON-RPC version must be exactly '2.0', got {repr(jsonrpc)}",
+                    message=f"JSON-RPC version must be exactly '2.0', got {jsonrpc!r}",
                     suggestion="Set the 'jsonrpc' field value to '2.0'",
                     context=message,
                 )
@@ -279,7 +279,7 @@ class ProtocolValidator:
 
         return results
 
-    async def validate_session(self, session_id: int, db: Database) -> List[ValidationResult]:
+    async def validate_session(self, session_id: int, db: Database) -> list[ValidationResult]:
         """Validate the entire chronological sequence of logged messages for a session."""
         session = await db.get_session(session_id)
         if not session:
@@ -303,18 +303,18 @@ class ProtocolValidator:
                 )
             ]
 
-        results: List[ValidationResult] = []
+        results: list[ValidationResult] = []
 
         initialized_handshake_started = False
         initialized_handshake_responded = False
         initialized_notification_sent = False
 
-        negotiated_server_capabilities: Dict[str, Any] = {}
-        initialize_request_id: Optional[Any] = None
+        negotiated_server_capabilities: dict[str, Any] = {}
+        initialize_request_id: Any | None = None
 
         for row in rows:
             # Reconstruct message dictionary from DB fields
-            msg_dict: Dict[str, Any] = {
+            msg_dict: dict[str, Any] = {
                 "jsonrpc": "2.0",
             }
             if row.get("message_id") is not None:

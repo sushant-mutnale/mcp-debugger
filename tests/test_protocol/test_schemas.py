@@ -2,11 +2,11 @@ import pytest
 from pydantic import ValidationError
 
 from mcp_debugger.protocol.schemas import (
+    ErrorDetails,
+    JSONRPCErrorResponse,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    JSONRPCErrorResponse,
-    ErrorDetails,
-    JSONRPCNotification,
     parse_jsonrpc_message,
 )
 

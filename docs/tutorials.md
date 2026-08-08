@@ -254,10 +254,12 @@ Then write a test that replays it:
 import subprocess
 import json
 
+
 def test_server_replay():
     result = subprocess.run(
         ["mcp-debugger", "replay", "1", "--server", "python -m my_package.server", "--json"],
-        capture_output=True, text=True
+        capture_output=True,
+        text=True,
     )
     report = json.loads(result.stdout)
     mismatches = [r for r in report if not r["matched"]]

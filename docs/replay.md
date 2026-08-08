@@ -24,9 +24,10 @@ class DiffType(str, Enum):
     REMOVED = "removed"
     CHANGED = "changed"
 
+
 class DiffNode(BaseModel):
-    path: str              # JSONPath-like path to the diff
-    type: DiffType         # Diff classification
+    path: str  # JSONPath-like path to the diff
+    type: DiffType  # Diff classification
     old_value: Any = None  # Original value (for CHANGED/REMOVED)
     new_value: Any = None  # Replayed value (for CHANGED/ADDED)
     children: List[DiffNode] = []

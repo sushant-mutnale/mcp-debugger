@@ -7,8 +7,10 @@ import os
 import sqlite3
 import time
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
+from typing import Any
+
 import aiosqlite
 
 logger = logging.getLogger("mcp_debugger.storage")
@@ -17,7 +19,7 @@ logger = logging.getLogger("mcp_debugger.storage")
 class Database:
     """Handles SQLite database interactions using aiosqlite."""
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         """Initialize database file path and directory structure."""
         if db_path is None:
             db_path = os.environ.get("MCP_DEBUGGER_DATABASE_PATH")
@@ -34,11 +36,11 @@ class Database:
         else:
             self.db_path = db_path
 
-        self._conn: Optional[aiosqlite.Connection] = None
+        self._conn: aiosqlite.Connection | None = None
 
         # Batch-write buffer: rows waiting to be INSERTed into messages
-        self._write_queue: asyncio.Queue[Optional[Tuple[Any, ...]]] = asyncio.Queue()
-        self._flush_task: Optional[asyncio.Task[None]] = None
+        self._write_queue: asyncio.Queue[tuple[Any, ...] | None] = asyncio.Queue()
+        self._flush_task: asyncio.Task[None] | None = None
         # Flush when buffer reaches this size OR after this many seconds
         self._flush_batch_size: int = 100
         self._flush_interval: float = 0.5
@@ -115,7 +117,7 @@ class Database:
 
     async def _flush_loop(self) -> None:
         """Background loop: flush every _flush_interval seconds or every _flush_batch_size rows."""
-        batch: List[Tuple[Any, ...]] = []
+        batch: list[tuple[Any, ...]] = []
         while True:
             try:
                 item = await asyncio.wait_for(self._write_queue.get(), timeout=self._flush_interval)
@@ -127,14 +129,14 @@ class Database:
                 if len(batch) >= self._flush_batch_size:
                     await self._commit_batch(batch)
                     batch = []
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if batch:
                     await self._commit_batch(batch)
                     batch = []
 
     async def _drain_queue(self) -> None:
         """Drain all currently queued rows in one batch commit (blocking)."""
-        batch: List[Tuple[Any, ...]] = []
+        batch: list[tuple[Any, ...]] = []
         while not self._write_queue.empty():
             item = self._write_queue.get_nowait()
             if item is None:
@@ -143,7 +145,7 @@ class Database:
         if batch:
             await self._commit_batch(batch)
 
-    async def _commit_batch(self, batch: List[Tuple[Any, ...]]) -> None:
+    async def _commit_batch(self, batch: list[tuple[Any, ...]]) -> None:
         """Write a list of message rows with a single executemany + commit."""
         if not batch:
             return
@@ -160,7 +162,7 @@ class Database:
             )
             # Update session total_messages in bulk
             # Group by session_id to avoid N UPDATE calls
-            counts: Dict[int, int] = {}
+            counts: dict[int, int] = {}
             for row in batch:
                 sid = int(row[0])
                 counts[sid] = counts.get(sid, 0) + 1
@@ -357,9 +359,9 @@ class Database:
     async def create_session(
         self,
         server_command: str,
-        client_info: Optional[str] = None,
-        server_name: Optional[str] = None,
-        friendly_name: Optional[str] = None,
+        client_info: str | None = None,
+        server_name: str | None = None,
+        friendly_name: str | None = None,
     ) -> int:
         """Create a new debugging session record, returning its integer ID."""
         try:
@@ -383,7 +385,7 @@ class Database:
         self,
         session_id: int,
         direction: str,
-        message: Union[Dict[str, Any], Any],
+        message: dict[str, Any] | Any,
     ) -> int:
         """Log a JSON-RPC message.
 
@@ -429,7 +431,7 @@ class Database:
                 message_type = "notification"
 
             timestamp = time.time() * 1000.0
-            latency_ms: Optional[float] = None
+            latency_ms: float | None = None
 
             # Calculate response latency – needs a DB read so always synchronous.
             if message_type == "response" and msg_id_str is not None:
@@ -448,7 +450,7 @@ class Database:
                         method = row[1]
                         latency_ms = timestamp - req_timestamp
 
-            row_tuple: Tuple[Any, ...] = (
+            row_tuple: tuple[Any, ...] = (
                 session_id,
                 msg_id_str,
                 direction,
@@ -497,7 +499,7 @@ class Database:
             logger.warning("Failed to log message: %s", e)
             return -1
 
-    async def log_tool(self, session_id: int, tool: Union[Dict[str, Any], Any]) -> None:
+    async def log_tool(self, session_id: int, tool: dict[str, Any] | Any) -> None:
         """Log a tool definition discovered in tools/list response."""
         try:
             if hasattr(tool, "model_dump"):
@@ -538,12 +540,12 @@ class Database:
     async def log_error(
         self,
         session_id: int,
-        message_id: Optional[int] = None,
+        message_id: int | None = None,
         error_type: str = "unknown",
         error_message: str = "",
-        suggestion: Optional[str] = None,
-        error_code: Optional[int] = None,
-        stack_trace: Optional[str] = None,
+        suggestion: str | None = None,
+        error_code: int | None = None,
+        stack_trace: str | None = None,
     ) -> int:
         """Store classified protocol or execution errors."""
         try:
@@ -607,7 +609,7 @@ class Database:
         except Exception as e:
             logger.warning("Failed to log raw line: %s", e)
 
-    async def get_server_logs(self, session_id: int) -> List[Dict[str, Any]]:
+    async def get_server_logs(self, session_id: int) -> list[dict[str, Any]]:
         """Retrieve all raw server log lines for a session."""
         try:
             conn = await self._get_conn()
@@ -621,7 +623,7 @@ class Database:
             logger.warning("Failed to get server logs: %s", e)
             return []
 
-    async def get_session(self, session_id: int) -> Optional[Dict[str, Any]]:
+    async def get_session(self, session_id: int) -> dict[str, Any] | None:
         """Retrieve details of a specific session."""
         try:
             conn = await self._get_conn()
@@ -635,17 +637,17 @@ class Database:
     async def get_messages(
         self,
         session_id: int,
-        method: Optional[str] = None,
-        direction: Optional[str] = None,
-        search: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        method: str | None = None,
+        direction: str | None = None,
+        search: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Query and return logged messages, optionally filtering by method, direction, and text search."""
         try:
             conn = await self._get_conn()
             query = "SELECT * FROM messages WHERE session_id = ?"
-            params: List[Any] = [session_id]
+            params: list[Any] = [session_id]
 
             if method is not None:
                 query += " AND method = ?"
@@ -683,10 +685,10 @@ class Database:
     async def iter_messages(
         self,
         session_id: int,
-        method: Optional[str] = None,
-        direction: Optional[str] = None,
+        method: str | None = None,
+        direction: str | None = None,
         chunk_size: int = 200,
-    ) -> AsyncIterator[Dict[str, Any]]:
+    ) -> AsyncIterator[dict[str, Any]]:
         """Stream messages one-by-one from a DB cursor to avoid loading all into RAM.
 
         Usage::
@@ -699,7 +701,7 @@ class Database:
         try:
             conn = await self._get_conn()
             query = "SELECT * FROM messages WHERE session_id = ?"
-            params: List[Any] = [session_id]
+            params: list[Any] = [session_id]
             if method is not None:
                 query += " AND method = ?"
                 params.append(method)
@@ -719,7 +721,7 @@ class Database:
             logger.warning("Failed to iter messages: %s", e)
             return
 
-    async def get_tools(self, session_id: int) -> List[Dict[str, Any]]:
+    async def get_tools(self, session_id: int) -> list[dict[str, Any]]:
         """Retrieve all unique tools discovered in a session."""
         try:
             conn = await self._get_conn()
@@ -768,7 +770,7 @@ class Database:
             logger.warning("Failed to get tool usage count: %s", e)
             return 0
 
-    async def get_errors(self, session_id: int) -> List[Dict[str, Any]]:
+    async def get_errors(self, session_id: int) -> list[dict[str, Any]]:
         """Retrieve all errors logged in a session."""
         try:
             conn = await self._get_conn()
@@ -785,8 +787,9 @@ class Database:
     async def get_sessions(
         self,
         limit: int = 20,
-        status_filter: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        offset: int = 0,
+        status_filter: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Retrieve historical debugging sessions in reverse chronological order."""
         try:
             conn = await self._get_conn()
@@ -806,13 +809,17 @@ class Database:
                     (CAST(strftime('%s', COALESCE(ended_at, CURRENT_TIMESTAMP)) AS INTEGER) - CAST(strftime('%s', started_at) AS INTEGER)) AS duration_seconds
                 FROM sessions
             """
-            params: List[Any] = []
+            params: list[Any] = []
             if status_filter is not None:
                 query += " WHERE status = ?"
                 params.append(status_filter)
 
             query += " ORDER BY started_at DESC, id DESC LIMIT ?"
             params.append(limit)
+
+            if offset > 0:
+                query += " OFFSET ?"
+                params.append(offset)
 
             async with conn.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
@@ -821,7 +828,7 @@ class Database:
             logger.warning("Failed to get sessions: %s", e)
             return []
 
-    async def get_replay_messages(self, session_id: int) -> List[Dict[str, Any]]:
+    async def get_replay_messages(self, session_id: int) -> list[dict[str, Any]]:
         """Load client requests/notifications and their matched original responses for replay."""
         try:
             conn = await self._get_conn()
@@ -901,7 +908,7 @@ class Database:
         status: str,
         total_messages: int,
         mismatches: int,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         started_at: str,
         ended_at: str,
     ) -> int:

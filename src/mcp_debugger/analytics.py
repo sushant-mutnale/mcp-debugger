@@ -1,9 +1,9 @@
 """Analytics engine for calculating session statistics and comparisons."""
 
 import json
-from datetime import datetime
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 from mcp_debugger.storage.database import Database
@@ -17,7 +17,7 @@ class ToolMetric(BaseModel):
 
     name: str
     calls: int = 0
-    avg_latency_ms: Optional[float] = None
+    avg_latency_ms: float | None = None
     error_rate: float = 0.0
     errors_count: int = 0
 
@@ -26,23 +26,23 @@ class SessionStats(BaseModel):
     """Container for computed session statistics."""
 
     session_id: int
-    friendly_name: Optional[str] = None
+    friendly_name: str | None = None
     server_command: str
-    started_at: Optional[str] = None
-    ended_at: Optional[str] = None
+    started_at: str | None = None
+    ended_at: str | None = None
     status: str
-    duration_seconds: Optional[int] = None
+    duration_seconds: int | None = None
     total_messages: int = 0
     client_to_server_count: int = 0
     server_to_client_count: int = 0
-    top_tools: List[ToolMetric] = Field(default_factory=list)
-    errors_by_category: Dict[str, int] = Field(default_factory=dict)
-    latency_min: Optional[float] = None
-    latency_max: Optional[float] = None
-    latency_avg: Optional[float] = None
-    latency_trend: List[float] = Field(default_factory=list)
-    method_distribution: Dict[str, int] = Field(default_factory=dict)
-    error_trend: List[int] = Field(default_factory=list)
+    top_tools: list[ToolMetric] = Field(default_factory=list)
+    errors_by_category: dict[str, int] = Field(default_factory=dict)
+    latency_min: float | None = None
+    latency_max: float | None = None
+    latency_avg: float | None = None
+    latency_trend: list[float] = Field(default_factory=list)
+    method_distribution: dict[str, int] = Field(default_factory=dict)
+    error_trend: list[int] = Field(default_factory=list)
 
 
 class ToolChange(BaseModel):
@@ -51,11 +51,11 @@ class ToolChange(BaseModel):
     name: str
     calls_a: int = 0
     calls_b: int = 0
-    change_pct: Optional[float] = None  # None if division by zero
+    change_pct: float | None = None  # None if division by zero
     change_str: str  # e.g. "+15%", "-75%", "removed", "new"
-    avg_latency_a: Optional[float] = None
-    avg_latency_b: Optional[float] = None
-    avg_latency_change_pct: Optional[float] = None
+    avg_latency_a: float | None = None
+    avg_latency_b: float | None = None
+    avg_latency_change_pct: float | None = None
 
 
 class ComparisonStats(BaseModel):
@@ -63,16 +63,16 @@ class ComparisonStats(BaseModel):
 
     session_id_a: int
     session_id_b: int
-    duration_a: Optional[int] = None
-    duration_b: Optional[int] = None
-    duration_change_pct: Optional[float] = None
+    duration_a: int | None = None
+    duration_b: int | None = None
+    duration_change_pct: float | None = None
     duration_change_str: str = ""
     messages_a: int = 0
     messages_b: int = 0
     messages_change_abs: int = 0
-    tool_changes: List[ToolChange] = Field(default_factory=list)
-    new_tools: List[str] = Field(default_factory=list)
-    removed_tools: List[str] = Field(default_factory=list)
+    tool_changes: list[ToolChange] = Field(default_factory=list)
+    new_tools: list[str] = Field(default_factory=list)
+    removed_tools: list[str] = Field(default_factory=list)
     errors_a: int = 0
     errors_b: int = 0
     error_rate_a: float = 0.0
@@ -80,7 +80,7 @@ class ComparisonStats(BaseModel):
     error_rate_change_str: str = ""
 
 
-def generate_sparkline(values: List[float], width: int = 30) -> str:
+def generate_sparkline(values: list[float], width: int = 30) -> str:
     """Generate a horizontal Unicode sparkline representing values over time.
 
     If length of values is greater than target width, downsamples by averaging.
@@ -123,8 +123,8 @@ def generate_sparkline(values: List[float], width: int = 30) -> str:
 
 
 def generate_bar_chart(
-    counts: Dict[str, int], max_width: int = 30
-) -> List[Tuple[str, int, float, str]]:
+    counts: dict[str, int], max_width: int = 30
+) -> list[tuple[str, int, float, str]]:
     """Generate bar chart segments (label, count, percentage, bar_string) sorted by count descending."""
     if not counts:
         return []
@@ -156,10 +156,10 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
     # Compute client vs server message counts, and method distribution
     c2s_count = 0
     s2c_count = 0
-    method_dist: Dict[str, int] = defaultdict(int)
+    method_dist: dict[str, int] = defaultdict(int)
 
     # We also keep track of error flags chronologically for the error trend sparkline
-    chrono_errors: List[int] = []
+    chrono_errors: list[int] = []
 
     for msg in messages:
         direction = msg.get("direction")
@@ -195,7 +195,7 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
     # Compute tool usage metrics
     # Query all request-response pairs for tools/call
     conn = await db._get_conn()
-    tool_calls: Dict[str, List[Tuple[Optional[float], bool]]] = defaultdict(list)
+    tool_calls: dict[str, list[tuple[float | None, bool]]] = defaultdict(list)
     try:
         async with conn.execute(
             """
@@ -246,7 +246,7 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
         # Fallback or log warning
         pass
 
-    top_tools: List[ToolMetric] = []
+    top_tools: list[ToolMetric] = []
     for tname, calls in tool_calls.items():
         total_calls = len(calls)
         errors_count = sum(1 for c in calls if c[1])
@@ -268,7 +268,7 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
     top_tools.sort(key=lambda x: x.calls, reverse=True)
 
     # Compute errors by category
-    errors_by_cat: Dict[str, int] = defaultdict(int)
+    errors_by_cat: dict[str, int] = defaultdict(int)
     for err in errors:
         cat = err.get("error_type") or "unknown"
         errors_by_cat[cat] += 1
@@ -341,9 +341,9 @@ def compare_sessions_stats(stats_a: SessionStats, stats_b: SessionStats) -> Comp
     tools_b_map = {t.name: t for t in stats_b.top_tools}
 
     all_tool_names = set(tools_a_map.keys()) | set(tools_b_map.keys())
-    tool_changes: List[ToolChange] = []
-    new_tools: List[str] = []
-    removed_tools: List[str] = []
+    tool_changes: list[ToolChange] = []
+    new_tools: list[str] = []
+    removed_tools: list[str] = []
 
     for name in all_tool_names:
         ta = tools_a_map.get(name)

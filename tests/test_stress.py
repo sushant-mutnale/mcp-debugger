@@ -4,10 +4,11 @@ import os
 import sys
 import time
 from pathlib import Path
+
 import pytest
 
-from mcp_debugger.storage.database import Database
 from mcp_debugger.replay.engine import ReplayEngine
+from mcp_debugger.storage.database import Database
 
 
 @pytest.mark.asyncio
@@ -174,7 +175,7 @@ while True:
                 # Read response
                 try:
                     await asyncio.wait_for(proc.stdout.readline(), timeout=2.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
         finally:
             if proc.stdin:
@@ -184,7 +185,7 @@ while True:
                     pass
             try:
                 await asyncio.wait_for(proc.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 try:
                     proc.kill()
                     await proc.wait()
@@ -286,7 +287,7 @@ while True:
                 pass
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             try:
                 proc.kill()
                 await proc.wait()

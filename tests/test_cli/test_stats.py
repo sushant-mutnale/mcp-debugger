@@ -1,16 +1,17 @@
-import json
 import asyncio
+import json
+
 import pytest
 from typer.testing import CliRunner
 
-from mcp_debugger.cli import app
-from mcp_debugger.storage.database import Database
 from mcp_debugger.analytics import (
-    generate_sparkline,
-    generate_bar_chart,
     aggregate_session_stats,
     compare_sessions_stats,
+    generate_bar_chart,
+    generate_sparkline,
 )
+from mcp_debugger.cli import app
+from mcp_debugger.storage.database import Database
 
 
 def test_generate_sparkline() -> None:

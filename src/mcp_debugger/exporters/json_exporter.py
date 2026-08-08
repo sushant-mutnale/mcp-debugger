@@ -1,17 +1,17 @@
 """JSON exporter – serialises a full session into a structured JSON document."""
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, IO, List, Optional
+from datetime import UTC, datetime
+from typing import IO, Any
 
 from mcp_debugger.analytics import SessionStats
 
 
-def _iso(ts_ms: Optional[float]) -> Optional[str]:
+def _iso(ts_ms: float | None) -> str | None:
     """Convert a float millisecond timestamp to an ISO-8601 UTC string."""
     if ts_ms is None:
         return None
-    return datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC).isoformat()
 
 
 class JSONExporter:
@@ -41,7 +41,7 @@ class JSONExporter:
         """
         self.pretty = pretty
         self.include_raw = include_raw
-        self._indent: Optional[int] = 2 if pretty else None
+        self._indent: int | None = 2 if pretty else None
 
     # ------------------------------------------------------------------
     # Public API
@@ -49,10 +49,10 @@ class JSONExporter:
 
     def export(
         self,
-        session: Dict[str, Any],
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-        errors: List[Dict[str, Any]],
+        session: dict[str, Any],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        errors: list[dict[str, Any]],
         stats: SessionStats,
         out: IO[str],
     ) -> None:
@@ -75,12 +75,12 @@ class JSONExporter:
 
     def _build(
         self,
-        session: Dict[str, Any],
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-        errors: List[Dict[str, Any]],
+        session: dict[str, Any],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        errors: list[dict[str, Any]],
         stats: SessionStats,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return {
             "session": self._build_session(session),
             "messages": [self._build_message(m) for m in messages],
@@ -90,7 +90,7 @@ class JSONExporter:
         }
 
     @staticmethod
-    def _build_session(session: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_session(session: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": session.get("id"),
             "friendly_name": session.get("friendly_name"),
@@ -102,7 +102,7 @@ class JSONExporter:
         }
 
     @staticmethod
-    def _build_message(msg: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_message(msg: dict[str, Any]) -> dict[str, Any]:
         # params / result / error are stored as JSON strings; decode them.
         def _decode(raw: Any) -> Any:
             if isinstance(raw, str):
@@ -125,7 +125,7 @@ class JSONExporter:
         }
 
     @staticmethod
-    def _build_tool(tool: Dict[str, Any], stats: SessionStats) -> Dict[str, Any]:
+    def _build_tool(tool: dict[str, Any], stats: SessionStats) -> dict[str, Any]:
         name = tool.get("name") or ""
         # Look up per-tool metrics from the pre-computed stats
         tool_metric = next((t for t in stats.top_tools if t.name == name), None)
@@ -151,7 +151,7 @@ class JSONExporter:
         }
 
     @staticmethod
-    def _build_error(err: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_error(err: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": err.get("id"),
             "type": err.get("error_type"),
@@ -161,7 +161,7 @@ class JSONExporter:
         }
 
     @staticmethod
-    def _build_stats(stats: SessionStats) -> Dict[str, Any]:
+    def _build_stats(stats: SessionStats) -> dict[str, Any]:
         total_errors = sum(stats.errors_by_category.values())
         total_msgs = stats.total_messages
         error_rate = round(total_errors / total_msgs, 4) if total_msgs > 0 else 0.0

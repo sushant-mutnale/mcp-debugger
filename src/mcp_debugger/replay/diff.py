@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -20,10 +21,10 @@ class DiffNode(BaseModel):
     type: DiffType
     old_value: Any = None
     new_value: Any = None
-    children: List[DiffNode] = []
+    children: list[DiffNode] = []
 
 
-def compare_json(original: Any, replayed: Any, path: str = "") -> Optional[DiffNode]:
+def compare_json(original: Any, replayed: Any, path: str = "") -> DiffNode | None:
     """Recursively compare original and replayed JSON values and return a DiffNode if different.
 
     Returns None if the values are identical.
@@ -58,7 +59,7 @@ def compare_json(original: Any, replayed: Any, path: str = "") -> Optional[DiffN
         added_keys = sorted(list(set(replayed.keys()) - set(original.keys())))
         shared_keys = sorted(list(set(original.keys()) & set(replayed.keys())))
 
-        children: List[DiffNode] = []
+        children: list[DiffNode] = []
 
         for k in removed_keys:
             children.append(
@@ -143,7 +144,7 @@ def compare_json(original: Any, replayed: Any, path: str = "") -> Optional[DiffN
 def render_diff(diff_node: DiffNode, indent_level: int = 0) -> str:
     """Renders a DiffNode tree into an inline color-coded string (Option B) using Rich markup."""
     indent = "  " * indent_level
-    lines: List[str] = []
+    lines: list[str] = []
 
     # If it has children (dict or list changes)
     if diff_node.children:

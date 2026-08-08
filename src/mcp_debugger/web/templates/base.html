@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}MCP Debugger{% endblock %}</title>
+    
+    <!-- Tailwind CSS (CDN for development/simplicity) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom styling to give it a "Tokyo Night" / DevTools feel -->
+    <style>
+        body {
+            background-color: #1a1b26; /* Tokyo Night background */
+            color: #a9b1d6; /* Tokyo Night foreground */
+        }
+        
+        .bg-panel {
+            background-color: #24283b;
+        }
+        
+        .border-panel {
+            border-color: #414868;
+        }
+        
+        .text-accent {
+            color: #7aa2f7; /* Tokyo Night blue */
+        }
+        
+        /* Table specific styling */
+        th {
+            background-color: #1f2335;
+            color: #c0caf5;
+        }
+        
+        tr {
+            border-bottom: 1px solid #292e42;
+        }
+        
+        tr:hover {
+            background-color: #2f354a;
+        }
+        
+        /* Status Badges */
+        .status-completed {
+            background-color: rgba(158, 206, 106, 0.2);
+            color: #9ece6a;
+            border: 1px solid #9ece6a;
+        }
+        
+        .status-running {
+            background-color: rgba(224, 175, 104, 0.2);
+            color: #e0af68;
+            border: 1px solid #e0af68;
+        }
+        
+        .status-error {
+            background-color: rgba(247, 118, 142, 0.2);
+            color: #f7768e;
+            border: 1px solid #f7768e;
+        }
+    </style>
+    
+    {% block head %}{% endblock %}
+</head>
+<body class="min-h-screen flex flex-col font-sans">
+    
+    <!-- Header -->
+    <header class="bg-panel border-b border-panel py-4 px-6 flex justify-between items-center sticky top-0 z-10 shadow-md">
+        <div class="flex items-center gap-3">
+            <svg class="w-8 h-8 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+            </svg>
+            <h1 class="text-xl font-bold tracking-wider text-white">MCP<span class="text-accent font-light">DEBUGGER</span></h1>
+        </div>
+        <nav>
+            <ul class="flex space-x-6 text-sm font-medium">
+                <li><a href="/" class="hover:text-white transition-colors duration-200">Sessions</a></li>
+                <!-- Future links could go here -->
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow p-6">
+        <div class="max-w-7xl mx-auto">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-panel border-t border-panel py-4 px-6 text-center text-xs text-gray-500 mt-auto">
+        <p>mcp-debugger &bull; Model Context Protocol Debugging Proxy</p>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

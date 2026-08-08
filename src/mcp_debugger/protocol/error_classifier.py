@@ -1,10 +1,10 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 class ErrorClassifier:
     """Classifies Model Context Protocol (MCP) and JSON-RPC runtime errors."""
 
-    def classify(self, message: Dict[str, Any]) -> Optional[Tuple[str, str, Optional[str]]]:
+    def classify(self, message: dict[str, Any]) -> tuple[str, str, str | None] | None:
         """
         Classifies a JSON-RPC message dictionary if it is an error response or a tool execution error.
 

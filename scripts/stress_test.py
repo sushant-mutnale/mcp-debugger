@@ -14,8 +14,8 @@ Usage:
   python scripts/stress_test.py --quick    # 200 messages, fast CI mode
 """
 
-import asyncio
 import argparse
+import asyncio
 import sys
 import tempfile
 import time

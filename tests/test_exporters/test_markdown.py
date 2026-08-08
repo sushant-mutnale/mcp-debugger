@@ -1,4 +1,5 @@
 import io
+
 from mcp_debugger.analytics import SessionStats, ToolMetric
 from mcp_debugger.exporters.markdown_exporter import MarkdownExporter
 

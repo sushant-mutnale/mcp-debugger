@@ -1,14 +1,15 @@
 import json
-from typing import Any, Dict
+from typing import Any
+
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from mcp_debugger.protocol.schemas import (
     JSONRPCRequest,
 )
 from mcp_debugger.protocol.validator import ProtocolValidator
-from mcp_debugger.replay.diff import compare_json, DiffType, DiffNode
-
+from mcp_debugger.replay.diff import DiffNode, DiffType, compare_json
 
 # ---------------------------------------------------------------------------
 # Strategies for Generating JSON-RPC payloads
@@ -44,7 +45,7 @@ request_dict_base = st.fixed_dictionaries(
 
 
 @given(request_data=request_dict_base, params=jsonrpc_params)
-def test_request_round_trip(request_data: Dict[str, Any], params: Any) -> None:
+def test_request_round_trip(request_data: dict[str, Any], params: Any) -> None:
     """Any generated valid request dict can be parsed, serialized, and re-parsed identically."""
     full_data = request_data.copy()
     if params is not None:

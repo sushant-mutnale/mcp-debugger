@@ -1,4 +1,5 @@
 import os
+
 from PIL import Image, ImageDraw, ImageFont
 
 # Set up dimensions and colors
@@ -24,7 +25,7 @@ try:
     font = ImageFont.truetype("consolas.ttf", 14)
     bold_font = ImageFont.truetype("consolas.ttf", 14)
     banner_font = ImageFont.truetype("arial.ttf", 15)
-except IOError:
+except OSError:
     font = ImageFont.load_default()
     bold_font = ImageFont.load_default()
     banner_font = ImageFont.load_default()

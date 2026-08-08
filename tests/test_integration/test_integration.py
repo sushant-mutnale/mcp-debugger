@@ -3,8 +3,8 @@ import json
 import os
 import sys
 from pathlib import Path
-import pytest
 
+import pytest
 
 from mcp_debugger.storage.database import Database
 
@@ -120,7 +120,7 @@ if __name__ == "__main__":
         print("[TEST] 4A. Read initialize response")
         try:
             line1_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=4.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise AssertionError("Timeout waiting for response.")
 
         line1 = line1_bytes.decode("utf-8").strip()
@@ -145,7 +145,7 @@ if __name__ == "__main__":
         print("[TEST] 4C. Read tools/list response")
         try:
             line2_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=4.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise AssertionError("Timeout waiting for tools/list response")
         line2 = line2_bytes.decode("utf-8").strip()
         print(f"[TEST] 4C. Received: {line2}")
@@ -162,7 +162,7 @@ if __name__ == "__main__":
         try:
             await asyncio.wait_for(proc.wait(), timeout=4.0)
             print("[TEST] 5. Proxy process exited normally")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             print("[TEST] 5. Proxy process timed out, killing it...")
             proc.kill()
             await proc.wait()
@@ -216,7 +216,7 @@ if __name__ == "__main__":
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc_inspect.communicate(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc_inspect.kill()
         stdout, stderr = await proc_inspect.communicate()
         print(
@@ -246,7 +246,7 @@ if __name__ == "__main__":
     )
     try:
         stdout_j, stderr_j = await asyncio.wait_for(proc_inspect_json.communicate(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc_inspect_json.kill()
         stdout_j, stderr_j = await proc_inspect_json.communicate()
         print(
@@ -276,7 +276,7 @@ if __name__ == "__main__":
     )
     try:
         stdout_t, stderr_t = await asyncio.wait_for(proc_tools.communicate(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc_tools.kill()
         stdout_t, stderr_t = await proc_tools.communicate()
         print(
@@ -305,7 +305,7 @@ if __name__ == "__main__":
     )
     try:
         stdout_tj, stderr_tj = await asyncio.wait_for(proc_tools_json.communicate(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc_tools_json.kill()
         stdout_tj, stderr_tj = await proc_tools_json.communicate()
         print(
@@ -336,7 +336,7 @@ if __name__ == "__main__":
     )
     try:
         stdout_td, stderr_td = await asyncio.wait_for(proc_tools_detail.communicate(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc_tools_detail.kill()
         stdout_td, stderr_td = await proc_tools_detail.communicate()
         print(

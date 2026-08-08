@@ -22,7 +22,7 @@ Trace structure
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 # ---------------------------------------------------------------------------
 # Optional OpenTelemetry imports – guarded so the module can be imported even
@@ -31,12 +31,12 @@ from typing import TYPE_CHECKING, Any, Dict
 # ---------------------------------------------------------------------------
 try:
     from opentelemetry import trace as _otel_trace  # noqa: F401
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
         OTLPSpanExporter,
     )
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.trace import Status, StatusCode
 
     _OTLP_AVAILABLE = True
@@ -52,7 +52,7 @@ except ImportError:  # pragma: no cover
     StatusCode = None  # type: ignore
 
 if TYPE_CHECKING:  # pragma: no cover
-    from mcp_debugger.replay.engine import ReplayResult, ReplayedMessage
+    from mcp_debugger.replay.engine import ReplayedMessage, ReplayResult
 
 _DIFF_SUMMARY_MAX = 255  # OTLP attribute character limit for diff summaries
 
@@ -88,7 +88,7 @@ class OTLPReplayExporter:
         self.insecure = insecure
         self.service_name = service_name
 
-    def export(self, result: "ReplayResult") -> int:
+    def export(self, result: ReplayResult) -> int:
         """Export *result* as an OTLP trace.
 
         Returns the number of child spans (replayed messages) exported, not
@@ -111,7 +111,7 @@ class OTLPReplayExporter:
         match_pct = round(matches / total * 100, 1) if total else 0.0
         duration_s = (result.ended_at - result.started_at).total_seconds()
 
-        root_attrs: Dict[str, Any] = {
+        root_attrs: dict[str, Any] = {
             "replay.session_id": str(result.session_id),
             "replay.target_server_command": result.target_server_command,
             "replay.total_messages": total,
@@ -152,13 +152,13 @@ class OTLPReplayExporter:
     def _emit_message_span(
         self,
         tracer: Any,
-        msg: "ReplayedMessage",
+        msg: ReplayedMessage,
     ) -> None:
         """Create a child span for a single replayed message."""
         method = msg.method or "unknown"
         span_name = f"mcp.replay.{method}"
 
-        attrs: Dict[str, Any] = {
+        attrs: dict[str, Any] = {
             "mcp.method": method,
             "mcp.direction": "client_to_server",
             "mcp.replay.original_message_id": str(msg.original_message_id),

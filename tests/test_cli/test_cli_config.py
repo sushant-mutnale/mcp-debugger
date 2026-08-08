@@ -2,8 +2,8 @@
 
 from typer.testing import CliRunner
 
-from mcp_debugger.cli import app
 import mcp_debugger.config as _cfg_mod
+from mcp_debugger.cli import app
 
 
 def test_cli_version(runner: CliRunner) -> None:

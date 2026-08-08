@@ -1,11 +1,12 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 import mcp_debugger.exporters.otlp_exporter as mod_otlp
 import mcp_debugger.exporters.otlp_replay_exporter as mod_replay
-from mcp_debugger.replay.engine import ReplayResult, ReplayedMessage
 from mcp_debugger.replay.diff import DiffNode, DiffType
+from mcp_debugger.replay.engine import ReplayedMessage, ReplayResult
 
 
 class TestOTLPExporter:
@@ -290,8 +291,8 @@ class TestOTLPReplayExporter:
             replay_id=7,
             session_id=session_id,
             target_server_command="mock-server",
-            started_at=datetime(2025, 6, 15, 10, 0, 0, tzinfo=timezone.utc),
-            ended_at=datetime(2025, 6, 15, 10, 0, 2, tzinfo=timezone.utc),
+            started_at=datetime(2025, 6, 15, 10, 0, 0, tzinfo=UTC),
+            ended_at=datetime(2025, 6, 15, 10, 0, 2, tzinfo=UTC),
             total_messages_replayed=matches + mismatches,
             successful_responses=matches,
             failed_responses=0,

@@ -1,5 +1,7 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
+
 from mcp_debugger.protocol.validator import ProtocolValidator
 from mcp_debugger.storage.database import Database
 

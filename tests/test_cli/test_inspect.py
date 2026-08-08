@@ -1,8 +1,9 @@
-import time
-import json
 import asyncio
+import json
+import time
 from typing import Any
 from unittest.mock import patch
+
 from typer.testing import CliRunner
 
 from mcp_debugger.cli import app

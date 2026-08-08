@@ -1,7 +1,8 @@
-import sys
 import asyncio
+import sys
 from typing import Any
 from unittest.mock import patch
+
 import pytest
 from typer.testing import CliRunner
 
@@ -216,7 +217,7 @@ time.sleep(20)
 
     def mock_wait_for(coro: Any, timeout: Any) -> Any:
         coro.close()
-        raise asyncio.TimeoutError()
+        raise TimeoutError()
 
     with patch("asyncio.wait_for", mock_wait_for):
         cmd = f"{sys.executable} {server_script}"

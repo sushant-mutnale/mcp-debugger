@@ -1,6 +1,7 @@
 import time
+
+from mcp_debugger.replay.diff import DiffType, compare_json, render_diff
 from mcp_debugger.replay.engine import deep_compare
-from mcp_debugger.replay.diff import compare_json, render_diff, DiffType
 
 
 def test_deep_compare() -> None:

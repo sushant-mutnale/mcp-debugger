@@ -1,8 +1,9 @@
-import json
 import asyncio
+import json
 import pathlib
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
-from datetime import datetime, timezone
+
 from typer.testing import CliRunner
 
 from mcp_debugger.cli import app
@@ -11,7 +12,7 @@ from mcp_debugger.storage.database import Database
 
 def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRunner) -> None:
     """Test that the replay CLI command parses options, calls the engine, outputs correctly, and exits with correct codes."""
-    from mcp_debugger.replay.engine import ReplayResult, ReplayedMessage
+    from mcp_debugger.replay.engine import ReplayedMessage, ReplayResult
 
     # Populate a session first so get_session does not fail
     async def create_session() -> None:
@@ -28,8 +29,8 @@ def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRu
         replay_id=42,
         session_id=1,
         target_server_command="mock-target",
-        started_at=datetime.now(timezone.utc),
-        ended_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        ended_at=datetime.now(UTC),
         total_messages_replayed=2,
         successful_responses=2,
         failed_responses=0,
@@ -95,8 +96,8 @@ def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRu
         replay_id=43,
         session_id=1,
         target_server_command="mock-target",
-        started_at=datetime.now(timezone.utc),
-        ended_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        ended_at=datetime.now(UTC),
         total_messages_replayed=1,
         successful_responses=1,
         failed_responses=0,
@@ -131,8 +132,8 @@ def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRu
         replay_id=None,
         session_id=1,
         target_server_command="mock-target",
-        started_at=datetime.now(timezone.utc),
-        ended_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        ended_at=datetime.now(UTC),
         total_messages_replayed=1,
         successful_responses=0,
         failed_responses=1,
@@ -165,8 +166,8 @@ def test_replay_command(mock_db_path: str, tmp_path: pathlib.Path, runner: CliRu
         replay_id=44,
         session_id=1,
         target_server_command="mock-target",
-        started_at=datetime.now(timezone.utc),
-        ended_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        ended_at=datetime.now(UTC),
         total_messages_replayed=1,
         successful_responses=0,
         failed_responses=0,

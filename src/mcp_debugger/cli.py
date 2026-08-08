@@ -1,14 +1,14 @@
 """CLI entry point for mcp-debugger."""
 
 import asyncio
-from datetime import datetime, timezone
 import io
 import json
 import os
 import sqlite3
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 import aiosqlite
 import typer
@@ -18,15 +18,15 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from mcp_debugger.proxy.stdio_proxy import StdioProxy
-from mcp_debugger.storage.database import Database
-from mcp_debugger.protocol.error_classifier import ErrorClassifier
 from mcp_debugger.analytics import (
     aggregate_session_stats,
     compare_sessions_stats,
-    generate_sparkline,
     generate_bar_chart,
+    generate_sparkline,
 )
+from mcp_debugger.protocol.error_classifier import ErrorClassifier
+from mcp_debugger.proxy.stdio_proxy import StdioProxy
+from mcp_debugger.storage.database import Database
 
 _os_name = os.name
 
@@ -158,7 +158,7 @@ def config_unset(
 @config_app.command(name="list")
 def config_list() -> None:
     """Show all config values in a formatted table."""
-    from mcp_debugger.config import get_config, default_config_path
+    from mcp_debugger.config import default_config_path, get_config
 
     cfg = get_config()
     data = cfg.all()
@@ -214,7 +214,7 @@ def convert_utc_to_local_string(utc_str: str) -> str:
     """Convert a UTC time string from SQLite into a local timezone formatted string."""
     utc_str_clean = utc_str.replace("T", " ")
     try:
-        dt_utc = datetime.strptime(utc_str_clean, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        dt_utc = datetime.strptime(utc_str_clean, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
         dt_local = dt_utc.astimezone()
         return dt_local.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
@@ -223,8 +223,7 @@ def convert_utc_to_local_string(utc_str: str) -> str:
 
 def format_duration(seconds: int, status: str) -> str:
     """Format duration in seconds to a human readable format (e.g. '2m 3s')."""
-    if seconds < 0:
-        seconds = 0
+    seconds = max(seconds, 0)
 
     if seconds < 60:
         duration_str = f"{seconds}s"
@@ -265,7 +264,7 @@ def proxy(
     server: str = typer.Option(
         ..., "--server", "-s", help="The command to launch the target MCP server"
     ),
-    name: Optional[str] = typer.Option(
+    name: str | None = typer.Option(
         None, "--name", "-n", help="A friendly name/label for the debugging session"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug logging"),
@@ -305,7 +304,7 @@ def proxy(
 @app.command(name="list")
 def list_sessions(
     limit: int = typer.Option(20, "--limit", "-l", help="Maximum number of sessions to display"),
-    status: Optional[str] = typer.Option(
+    status: str | None = typer.Option(
         None,
         "--status",
         help="Filter sessions by status (running, completed, error)",
@@ -398,27 +397,27 @@ def list_sessions(
 @app.command(name="inspect")
 def inspect(
     session_id: int = typer.Argument(..., help="The ID of the session to inspect"),
-    method: Optional[str] = typer.Option(
+    method: str | None = typer.Option(
         None,
         "--method",
         help="Filter messages by method name (case-sensitive)",
     ),
-    direction: Optional[str] = typer.Option(
+    direction: str | None = typer.Option(
         None,
         "--direction",
         help="Filter messages by direction (client_to_server, server_to_client)",
     ),
-    search: Optional[str] = typer.Option(
+    search: str | None = typer.Option(
         None,
         "--search",
         help="Substring search in the JSON body (raw text)",
     ),
-    limit: Optional[int] = typer.Option(
+    limit: int | None = typer.Option(
         None,
         "--limit",
         help="Maximum number of messages to show",
     ),
-    offset: Optional[int] = typer.Option(
+    offset: int | None = typer.Option(
         None,
         "--offset",
         help="Skip the first N messages",
@@ -428,7 +427,7 @@ def inspect(
         "--json",
         help="Output raw JSON instead of Rich terminal format",
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None,
         "--output",
         "-o",
@@ -661,7 +660,7 @@ def inspect(
 @app.command(name="errors")
 def list_errors(
     session_id: int = typer.Argument(..., help="The ID of the session to check for errors"),
-    category: Optional[str] = typer.Option(
+    category: str | None = typer.Option(
         None,
         "--category",
         help="Filter errors by category (protocol, tool_execution, timeout, connection, unknown)",
@@ -979,7 +978,7 @@ def doctor() -> None:
         raise typer.Exit(code=0)
 
 
-def calculate_compliance_score(results: List[Any]) -> Tuple[int, int, int]:
+def calculate_compliance_score(results: list[Any]) -> tuple[int, int, int]:
     """Calculates the compliance score based on 5 critical rule categories:
 
     1. jsonrpc_version
@@ -1018,10 +1017,10 @@ def calculate_compliance_score(results: List[Any]) -> Tuple[int, int, int]:
 
 @app.command(name="validate")
 def validate(
-    session_id: Optional[int] = typer.Argument(
+    session_id: int | None = typer.Argument(
         None, help="The ID of the recorded session to validate"
     ),
-    server: Optional[str] = typer.Option(
+    server: str | None = typer.Option(
         None, "--server", "-s", help="Launch a live MCP server command and test it"
     ),
     json_mode: bool = typer.Option(
@@ -1159,7 +1158,7 @@ def validate(
 @app.command(name="tools")
 def tools(
     session_id: int = typer.Argument(..., help="The ID of the session to view tools for"),
-    detail: Optional[str] = typer.Option(
+    detail: str | None = typer.Option(
         None,
         "--detail",
         help="Show the full input schema for a specific tool",
@@ -1360,7 +1359,7 @@ def stats(
         "--json",
         help="Output raw statistics as JSON",
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None,
         "--output",
         help="Write report to a file (Markdown or JSON)",
@@ -1708,7 +1707,7 @@ def export(
         "--format",
         help="Export format: json | markdown | otlp",
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None,
         "--output",
         help="Write to file instead of stdout (json / markdown formats)",
@@ -1738,7 +1737,7 @@ def export(
         "--service-name",
         help="Service name for OTLP traces",
     ),
-    limit: Optional[int] = typer.Option(
+    limit: int | None = typer.Option(
         None,
         "--limit",
         help="Max messages to export (useful for large sessions with otlp)",
@@ -1845,29 +1844,29 @@ def export(
 @app.command(name="replay")
 def replay(
     session_id: int = typer.Argument(..., help="ID of the recorded session to replay"),
-    server: Optional[str] = typer.Option(
+    server: str | None = typer.Option(
         None,
         "--server",
         "-s",
         help="Command to launch the target server (overrides --alias and config)",
     ),
-    alias: Optional[str] = typer.Option(
+    alias: str | None = typer.Option(
         None, "--alias", "-a", help="Server alias defined in config [aliases] section"
     ),
-    timeout: Optional[int] = typer.Option(
+    timeout: int | None = typer.Option(
         None, "--timeout", help="Timeout in milliseconds per request-response pair"
     ),
-    max_messages: Optional[int] = typer.Option(
+    max_messages: int | None = typer.Option(
         None, "--max-messages", help="Maximum number of client messages to replay"
     ),
-    filter_method: Optional[str] = typer.Option(
+    filter_method: str | None = typer.Option(
         None, "--filter-method", help="Only replay messages with this method name"
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Show all messages with diffs (even matches)"
     ),
     json_mode: bool = typer.Option(False, "--json", help="Output raw JSON report"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write output to a file"),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Write output to a file"),
     save: bool = typer.Option(
         False, "--save", help="Save replay results to the replays database table"
     ),
@@ -1879,13 +1878,13 @@ def replay(
         "--otlp-export",
         help="Export replay results to an OTLP collector (requires mcp-debugger[otlp])",
     ),
-    otlp_endpoint: Optional[str] = typer.Option(
+    otlp_endpoint: str | None = typer.Option(
         None, "--otlp-endpoint", help="OTLP gRPC collector endpoint"
     ),
     otlp_insecure: bool = typer.Option(
         True, "--otlp-insecure/--otlp-tls", help="Disable TLS for local OTLP collectors"
     ),
-    otlp_service_name: Optional[str] = typer.Option(
+    otlp_service_name: str | None = typer.Option(
         None, "--otlp-service-name", help="Service name for OTLP traces"
     ),
 ) -> None:
@@ -1962,7 +1961,7 @@ def replay(
             task_id = None
 
             if not json_mode:
-                from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
+                from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
                 progress_bar = Progress(
                     TextColumn(f"Replaying session {session_id}..."),
@@ -2198,6 +2197,37 @@ def replay(
         asyncio.run(_run())
     except KeyboardInterrupt:
         sys.exit(0)
+
+
+@app.command(name="web")
+def web(
+    port: int = typer.Option(8000, "--port", "-p", help="Port to run the web server on"),
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host interface to bind to"),
+    open_browser: bool = typer.Option(
+        False, "--open", help="Automatically open the browser when the server starts"
+    ),
+) -> None:
+    """Start the MCP Debugger Web UI."""
+    import threading
+    import time
+    import webbrowser
+
+    import uvicorn
+
+    url = f"http://{host}:{port}"
+    console.print(f"[green]Starting MCP Debugger Web UI at {url}[/green]")
+
+    if open_browser:
+        def open_url() -> None:
+            time.sleep(1.5)  # Wait for server to start
+            webbrowser.open(url)
+        
+        threading.Thread(target=open_url, daemon=True).start()
+
+    # Run the Uvicorn server programmatically
+    # We pass the module string so uvicorn can handle reloading if needed, 
+    # though we don't enable reload by default here for production usage.
+    uvicorn.run("mcp_debugger.web.app:app", host=host, port=port, log_level="info")
 
 
 def main() -> None:

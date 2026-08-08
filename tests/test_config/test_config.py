@@ -8,14 +8,13 @@ from pathlib import Path
 import pytest
 
 from mcp_debugger.config import (
-    Config,
     DEFAULT_CONFIG,
+    Config,
     _coerce,
     _deep_merge,
     _dumps_toml,
     _toml_value,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -335,6 +334,7 @@ class TestConfigEdgeCases:
     def test_config_dir_linux(self) -> None:
         """Verify _config_dir behavior on non-Windows platforms."""
         from unittest.mock import patch
+
         from mcp_debugger.config import _config_dir
 
         with patch("sys.platform", "linux"):

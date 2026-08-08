@@ -1,6 +1,6 @@
 import io
 import json
-from typing import Any, Dict
+from typing import Any
 
 from mcp_debugger.analytics import SessionStats, ToolMetric
 from mcp_debugger.exporters.json_exporter import JSONExporter
@@ -111,7 +111,7 @@ STATS = SessionStats(
 
 
 class TestJSONExporter:
-    def _export(self, pretty: bool = False, include_raw: bool = False) -> Dict[str, Any]:
+    def _export(self, pretty: bool = False, include_raw: bool = False) -> dict[str, Any]:
         exporter = JSONExporter(pretty=pretty, include_raw=include_raw)
         buf = io.StringIO()
         exporter.export(SESSION, MESSAGES, TOOLS, ERRORS, STATS, buf)

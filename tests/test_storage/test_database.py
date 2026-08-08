@@ -1,9 +1,10 @@
+import asyncio
 import os
+import sqlite3
 import tempfile
 import time
-import asyncio
 from typing import Any
-import sqlite3
+
 import pytest
 
 from mcp_debugger.protocol.schemas import JSONRPCRequest

@@ -1,215 +1,224 @@
-Day 25: Final Polish & GitHub Launch – The Big Day
-This is it. After 24 days of planning and building, you're ready to launch mcp-debugger to the world. Day 25 is about polish, presentation, and publishing – making sure your project looks professional, works flawlessly, and gets in front of the right audience.
-
-By the end of Day 25, you will have:
-
-A polished GitHub repository – clean README, good visuals, clear structure.
-
-A working release – published to PyPI, installable via pip.
-
-A launch announcement – drafted and ready to share on Reddit, Hacker News, Twitter/X, and relevant communities.
-
-A plan for post‑launch engagement – monitoring issues, gathering feedback, iterating.
-
+Day 26: FastAPI Backend Setup
 🎯 Core Objective
-Execute the launch with these components:
+Set up the FastAPI web backend that will serve the Web UI. This is the foundation for all web-based features.
 
-Component Description
-Final code review Read every file, fix TODOs, improve comments, ensure consistency.
-Demo recording Create a GIF or video showing the tool in action.
-Repository clean-up Check .gitignore, remove debug files, ensure CI passes.
-PyPI release Publish to real PyPI (or Test PyPI first, then real).
-Launch announcement Write posts for Reddit (r/Python, r/LocalLLaMA, r/MCP), Hacker News, Twitter/X, LinkedIn.
-Community engagement Monitor initial feedback, respond to issues, iterate.
+By the end of Day 26, you'll have a running web server that can:
+
+List sessions from the database via API.
+
+Serve basic HTML pages.
+
+Provide a foundation for the interactive Web UI.
+
+📦 What You Need to Build
+New Dependencies:
+
+fastapi – Web framework
+
+jinja2 – Template engine for HTML
+
+uvicorn – ASGI server
+
+python-multipart – Form parsing
+
+New Directory Structure:
+
+text
+src/mcp_debugger/
+├── web/
+│ ├── **init**.py
+│ ├── app.py # FastAPI application
+│ ├── templates/ # Jinja2 templates
+│ │ ├── base.html
+│ │ └── sessions.html
+│ └── static/ # CSS, JS, images (optional)
+└── cli.py # Add 'web' command
 🧠 Expected Behaviour
 
-1. Final Code Review
-   Before the launch, do a final read‑through of the entire codebase. Look for:
+1. Add Dependencies
+   Add FastAPI, Jinja2, Uvicorn, and python-multipart to pyproject.toml:
 
-Check What to look for
-TODOs Any remaining # TODO comments? Either implement or remove.
-Dead code Unused imports, functions, or variables. Run ruff check --fix and vulture (optional).
-Consistency Naming conventions, error messages, docstrings. Do they follow the same style?
-Error messages Are they actionable? Do they suggest what the user should do?
-Logging Are logs at appropriate levels (INFO, WARNING, ERROR)? No print() statements left.
-Type hints mypy --strict passes.
-Tests All tests pass (pytest). Coverage report >90%.
-Documentation All commands documented, examples work.
-Procedure:
+toml
+dependencies = [
+# ... existing dependencies ...
+"fastapi>=0.110.0",
+"jinja2>=3.1.0",
+"uvicorn>=0.27.0",
+"python-multipart>=0.0.9",
+]
+Then run: uv sync
 
-Run ruff check src/ --fix to auto‑fix linting issues.
+2. Create FastAPI Application (src/mcp_debugger/web/app.py)
+   This is the main application file. It will:
 
-Run mypy src/ and fix any remaining type errors.
+Create a FastAPI app instance.
 
-Run pytest --cov=src/mcp_debugger and verify coverage is acceptable.
+Configure Jinja2 templates.
 
-Manually test the tool end‑to‑end:
+Add CORS middleware (for development).
 
-mcp-debugger proxy --server "npx -y @modelcontextprotocol/server-filesystem /tmp" --name "launch-test"
+Define routes:
 
-Interact with the server (send a few messages via a test client).
+GET / – Home page (session list)
 
-mcp-debugger list
+GET /api/sessions – JSON endpoint for session list
 
-mcp-debugger inspect <session_id>
+GET /api/sessions/{id} – JSON endpoint for session detail
 
-mcp-debugger validate --session <session_id>
+GET /api/sessions/{id}/messages – JSON endpoint for messages
 
-mcp-debugger stats <session_id>
+Route Implementation Details:
 
-mcp-debugger replay <session_id> --server "npx -y @modelcontextprotocol/server-filesystem /tmp"
+Route Method Behaviour
+/ GET Renders sessions.html template with session data.
+/api/sessions GET Returns JSON array of all sessions (id, name, server_command, started_at, ended_at, status, message_count).
+/api/sessions/{id} GET Returns JSON object with session details (metadata + tools + errors + stats).
+/api/sessions/{id}/messages GET Returns JSON array of messages with optional filtering (method, direction, limit, offset).
+/api/sessions/{id}/export GET Exports session in specified format (format=json|markdown|otlp).
+API Response Examples:
 
-mcp-debugger export <session_id> --format json --output test.json
+GET /api/sessions:
 
-mcp-debugger doctor
+json
+[
+{
+"id": 1,
+"friendly_name": "filesystem-test",
+"server_command": "npx -y @modelcontextprotocol/server-filesystem /tmp",
+"started_at": "2025-06-10T14:23:01",
+"ended_at": "2025-06-10T14:25:35",
+"status": "completed",
+"message_count": 142
+}
+]
+GET /api/sessions/1:
 
-Fix any bugs discovered.
+json
+{
+"id": 1,
+"friendly_name": "filesystem-test",
+"server_command": "npx -y @modelcontextprotocol/server-filesystem /tmp",
+"started_at": "2025-06-10T14:23:01",
+"ended_at": "2025-06-10T14:25:35",
+"status": "completed",
+"total_messages": 142,
+"tools": [...],
+"errors": [...]
+} 3. Create Base Template (templates/base.html)
+This is the layout template that all pages will extend. It should include:
 
-2. Demo Recording
-   A short demo (30‑60 seconds) is worth a thousand words.
+HTML5 structure with <head> and <body>.
 
-Tools:
+CSS (use simple or CDN Tailwind).
 
-asciinema – record terminal sessions, export as GIF with agg.
+Header with navigation.
 
-terminalizer – record terminal with customizable frames.
+Footer with version info.
 
-LICEcap – simple screen recorder for GIFs.
+Block placeholders: {% block content %} and {% block scripts %}.
 
-What to show:
+4. Create Sessions Template (templates/sessions.html)
+   This template extends base.html and:
 
-Install: pip install mcp-debugger
+Displays sessions in a table (ID, Name, Server Command, Started, Duration, Messages, Status).
 
-Record a session: mcp-debugger proxy --server "..." --name "demo"
+Status badges: 🟢 Completed, 🟡 Running, 🔴 Error.
 
-List sessions: mcp-debugger list
+Search box (client-side filtering).
 
-Inspect a session: mcp-debugger inspect 1 (show syntax‑highlighted JSON)
+Pagination (25 sessions per page).
 
-Validate a server: mcp-debugger validate --session 1 (show compliance report)
-
-Replay a session: mcp-debugger replay 1 --server "..." (show diff)
-
-Embed in README:
-
-markdown
-[![Demo](https://example.com/demo.gif)](https://example.com/demo.gif)
-Or link to an asciinema recording:
-
-markdown
-[![asciicast](https://asciinema.org/a/xxxxx.svg)](https://asciinema.org/a/xxxxx) 3. Repository Clean‑up
-Item Action
-.gitignore Ensure all temporary files, **pycache**, .pytest_cache, .ruff_cache, .mypy_cache, .venv, _.db, dist/, build/ are ignored.
-Remove debug files Check for any _.log, _.tmp, _.pid files.
-Ensure CI passes GitHub Actions should be green on the main branch.
-Update README Add badges (PyPI version, Python versions, tests, coverage, license).
-Update CHANGELOG Ensure entry for v0.1.0 is complete.
-Tag the release git tag v0.1.0 and git push origin v0.1.0 (triggers CI to publish to PyPI). 4. PyPI Release
-Step‑by‑step:
-
-Ensure pyproject.toml has the correct version (0.1.0).
-
-Ensure CHANGELOG.md has an entry for 0.1.0.
-
-Commit any final changes:
-
-bash
-git add .
-git commit -m "chore: prepare release v0.1.0"
-git push origin main
-Tag and push:
-
-bash
-git tag v0.1.0
-git push origin v0.1.0
-GitHub Actions will build and publish to PyPI automatically (if configured).
-
-Verify:
+5. Add web Command to CLI
+   Add a new command to cli.py:
 
 bash
-pip install mcp-debugger
-mcp-debugger version
-If not using GitHub Actions:
+mcp-debugger web [--port 8000] [--host 127.0.0.1] [--open]
+Starts the Uvicorn server.
 
-bash
-uv build
-uv publish
-If using Test PyPI first (recommended):
+--open automatically opens the browser.
 
-Publish to Test PyPI: uv publish --publish-url https://test.pypi.org/legacy/
+Uses the same database as the CLI.
 
-Verify install: pip install --index-url https://test.pypi.org/simple/ mcp-debugger
+6. Database Helper Functions
+   Add new functions to database.py for the web UI:
 
-Once verified, publish to real PyPI: uv publish
+get_sessions(limit, offset, status) – returns sessions list.
 
-5. Launch Announcement
-   Where to post:
+get_session_metadata(session_id) – returns session metadata + stats.
 
-Platform Why Notes
-Reddit Massive Python and AI developer communities Post to r/Python, r/LocalLLaMA, r/MCP (if exists), r/OpenAI, r/LLMDevs.
-Hacker News Tech crowd, potential early adopters Submit as "Show HN".
-Twitter/X Quick sharing, influencers Tag @Python, @OpenAI, @AnthropicAI, @langchain, etc.
-LinkedIn Professional network Post with a demo GIF.
-Dev.to Developer community Write a blog post about the tool.
-MCP Discord Direct audience Share with MCP community.
-Draft a post (template for Reddit/HN):
+get_session_messages(session_id, method, direction, limit, offset) – returns messages with filters.
 
-text
-I built mcp-debugger – a CLI tool to debug, record, and replay MCP (Model Context Protocol) sessions.
+get_session_tools(session_id) – returns tools for session.
 
-🔍 Record every JSON‑RPC message between client and server
-📊 Inspect sessions with syntax‑highlighted terminal UI
-✅ Validate MCP protocol compliance
-🔄 Replay sessions for regression testing
-📈 Stats, exports, OTLP traces, and more
+get_session_errors(session_id) – returns errors for session.
 
-100% local, no cloud, free and open‑source.
+7. Error Handling
+   If session ID doesn't exist, return 404 with a JSON error.
 
-GitHub: https://github.com/yourusername/mcp-debugger
-Docs: https://github.com/yourusername/mcp-debugger#readme
-PyPI: https://pypi.org/project/mcp-debugger/
+If database is missing, show a helpful error message.
 
-Install: pip install mcp-debugger
+Handle malformed requests gracefully.
 
-Would love feedback from the community!
-Twitter/X post (shorter):
+🔗 Integration with Previous Days
+Day 3 (Database): The web APIs will use the same Database class to fetch data.
 
-text
-Just launched mcp-debugger – a local‑first CLI tool to debug, validate, and replay MCP sessions.
+Day 5 (List): The web session list should match the CLI list command output.
 
-🔍 Record & inspect MCP traffic
-✅ Validate protocol compliance
-🔄 Replay sessions for regression testing
-📊 Stats, exports, OTLP support
+Day 6 (Inspect): The web session detail should match the CLI inspect command output.
 
-pip install mcp-debugger
+Day 13 (Export): The web export endpoint should use the same exporters.
 
-GitHub: https://github.com/yourusername/mcp-debugger
-Include the demo GIF in all posts.
+⚙️ Production Considerations
+Performance
+Session list should load in <500ms for 100+ sessions.
 
-6. Post‑Launch Engagement
-   Task Timing Action
-   Monitor issues First 24‑48 hours Watch GitHub Issues, respond quickly.
-   Watch social media First 24‑48 hours Reply to comments, thank people for feedback.
-   Collect feedback First week Ask users what they like, what's missing.
-   Plan next release First week Prioritise feature requests and bug fixes.
-   Write a blog post First 2 weeks Deep‑dive into the tool's design and use cases.
-   ✅ Day 25 Verification Checklist
+Use indexes on started_at and status for quick sorting.
+
+Use LIMIT and OFFSET for pagination.
+
+For message count, use SELECT COUNT(\*) instead of loading all messages.
+
+CORS
+Add CORS middleware for development (allows frontend to call API from different port).
+
+In production, restrict to specific origins.
+
+Security
+No authentication yet (Phase 1). The web UI is local-only.
+
+Ensure the web server listens on 127.0.0.1 by default (not exposed to network).
+
+Add --host 0.0.0.0 flag only for advanced users.
+
+Development vs Production
+In development, use --reload flag for auto-reload.
+
+In production, use --workers 4 for concurrency.
+
+✅ Day 26 Verification Checklist
 
 # Check How to verify
 
-1 Final code review completed All TODOs removed, ruff, mypy, pytest pass.
-2 Manual end‑to‑end test passes All commands work with a real MCP server.
-3 Demo GIF/video recorded and embedded in README View README preview – GIF plays.
-4 GitHub badges added (PyPI version, tests, coverage, license) Check README.md – badges display correctly.
-5 .gitignore is complete Run git status – no unexpected files.
-6 CHANGELOG.md has entry for v0.1.0 View file – entry exists.
-7 Git tag v0.1.0 created and pushed git tag shows v0.1.0.
-8 CI passes on GitHub Actions tab – all green.
-9 Package published to PyPI pip install mcp-debugger succeeds.
-10 mcp-debugger version shows 0.1.0 After install, version matches.
-11 Launch posts drafted and scheduled Docs or notes file contains final drafts.
-12 Reddit/HN/Twitter posts published Check each platform.
-13 MCP community notified Discord, Slack, etc.
-14 README updated with release version badge PyPI version badge shows 0.1.0.
-15 Commit with message chore: release v0.1.0 git log shows commit.
+1 Dependencies installed uv sync – no errors.
+2 FastAPI app runs uv run uvicorn src.mcp_debugger.web.app:app --reload – starts without errors.
+3 Home page loads Open http://localhost:8000/ – shows a page (even if no sessions).
+4 API endpoint works curl http://localhost:8000/api/sessions – returns JSON (empty array if no sessions).
+5 Session list page After running a proxy session, / shows sessions in a table.
+6 Session detail API curl http://localhost:8000/api/sessions/1 – returns session metadata.
+7 mcp-debugger web command works Run mcp-debugger web – server starts.
+8 --open flag opens browser Run mcp-debugger web --open – browser opens automatically.
+9 Database helper functions work Database.get_sessions() returns sessions list.
+10 ruff check passes No linting errors.
+11 mypy --strict passes No type errors.
+12 Documentation: docs/web-ui.md created Basic setup instructions.
+13 Commit with message feat(web): add FastAPI backend for Web UI –
+💡 Tips for Day 26
+Start with the simplest possible routes – just get / and /api/sessions working.
+
+Use app.mount("/static", StaticFiles(directory="static"), name="static") for CSS/JS.
+
+For the HTML template, use a minimal CSS framework like Pico CSS or Tailwind CDN – don't build custom CSS from scratch.
+
+Test the API endpoints with curl or the browser before building the templates.
+
+Reuse existing Database methods – don't duplicate logic.

@@ -24,7 +24,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger("mcp_debugger.config")
 
@@ -32,7 +32,7 @@ logger = logging.getLogger("mcp_debugger.config")
 # Default configuration values
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONFIG: Dict[str, Any] = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "general": {
         "default_output": "rich",
         "color": True,
@@ -90,7 +90,7 @@ def default_config_path() -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _loads_toml(text: str) -> Dict[str, Any]:
+def _loads_toml(text: str) -> dict[str, Any]:
     """Parse TOML text using the stdlib tomllib (Python 3.11+)."""
     if sys.version_info >= (3, 11):
         import tomllib  # pragma: no cover
@@ -104,7 +104,7 @@ def _loads_toml(text: str) -> Dict[str, Any]:
         return tomllib.loads(text)  # type: ignore[no-any-return]
 
 
-def _dumps_toml(data: Dict[str, Any]) -> str:
+def _dumps_toml(data: dict[str, Any]) -> str:
     """Serialize a two-level dict to TOML text.
 
     Supports:
@@ -170,9 +170,9 @@ class Config:
             platform-standard location but can be overridden (e.g. in tests).
     """
 
-    def __init__(self, path: Optional[Path] = None) -> None:
+    def __init__(self, path: Path | None = None) -> None:
         self.path: Path = path or default_config_path()
-        self._data: Dict[str, Any] = {}
+        self._data: dict[str, Any] = {}
         self._loaded: bool = False
 
     # ------------------------------------------------------------------
@@ -250,7 +250,7 @@ class Config:
         if not self._loaded:
             self.load()
         parts = key.split(".")
-        node: Dict[str, Any] = self._data
+        node: dict[str, Any] = self._data
         for part in parts[:-1]:
             if part not in node or not isinstance(node[part], dict):
                 node[part] = {}
@@ -271,7 +271,7 @@ class Config:
         if not self._loaded:
             self.load()
         parts = key.split(".")
-        node: Dict[str, Any] = self._data
+        node: dict[str, Any] = self._data
         for part in parts[:-1]:
             if not isinstance(node, dict) or part not in node:
                 return False
@@ -282,7 +282,7 @@ class Config:
             return True
         return False
 
-    def all(self) -> Dict[str, Any]:
+    def all(self) -> dict[str, Any]:
         """Return a copy of the full in-memory config dict."""
         if not self._loaded:
             self.load()
@@ -298,7 +298,7 @@ class Config:
         self._loaded = True
         self.save()
 
-    def resolve_alias(self, alias: str) -> Optional[str]:
+    def resolve_alias(self, alias: str) -> str | None:
         """Look up *alias* in ``[aliases]`` and return the server command.
 
         Args:
@@ -321,7 +321,7 @@ class Config:
 # ---------------------------------------------------------------------------
 
 
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> None:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
     """Recursively merge *override* into *base* in-place."""
     for k, v in override.items():
         if k in base and isinstance(base[k], dict) and isinstance(v, dict):
@@ -353,10 +353,10 @@ def _coerce(value: Any) -> Any:
 # Module-level singleton (lazy, one per process)
 # ---------------------------------------------------------------------------
 
-_GLOBAL_CONFIG: Optional[Config] = None
+_GLOBAL_CONFIG: Config | None = None
 
 
-def get_config(path: Optional[Path] = None) -> Config:
+def get_config(path: Path | None = None) -> Config:
     """Return the process-wide :class:`Config` singleton.
 
     The first call initialises and loads the config.  Subsequent calls

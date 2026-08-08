@@ -11,20 +11,20 @@ If the ``opentelemetry-sdk`` package is not installed this module raises
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
     _OTLP_AVAILABLE = True
 except ImportError:  # pragma: no cover
     _OTLP_AVAILABLE = False
 
 
-def _get_tool_name(params_raw: Optional[str]) -> Optional[str]:
+def _get_tool_name(params_raw: str | None) -> str | None:
     """Extract tool name from a serialised ``params`` JSON string."""
     if not params_raw:
         return None
@@ -56,7 +56,7 @@ class OTLPExporter:
         endpoint: str = "http://localhost:4317",
         insecure: bool = True,
         service_name: str = "mcp-debugger",
-        limit: Optional[int] = None,
+        limit: int | None = None,
     ) -> None:
         if not _OTLP_AVAILABLE:
             raise ImportError(
@@ -69,8 +69,8 @@ class OTLPExporter:
 
     def export(
         self,
-        session: Dict[str, Any],
-        messages: List[Dict[str, Any]],
+        session: dict[str, Any],
+        messages: list[dict[str, Any]],
     ) -> int:
         """Build and export spans for all request–response pairs.
 
@@ -114,15 +114,15 @@ class OTLPExporter:
 
     @staticmethod
     def _pair_messages(
-        messages: List[Dict[str, Any]],
-    ) -> List[Tuple[Dict[str, Any], Optional[Dict[str, Any]]]]:
+        messages: list[dict[str, Any]],
+    ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
         """Match requests with their responses by message_id.
 
         Notifications (no message_id) are emitted as solo pairs ``(msg, None)``.
         Responses without a matching request are skipped.
         """
-        request_map: Dict[str, Dict[str, Any]] = {}
-        pairs: List[Tuple[Dict[str, Any], Optional[Dict[str, Any]]]] = []
+        request_map: dict[str, dict[str, Any]] = {}
+        pairs: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
 
         for msg in messages:
             direction = msg.get("direction")
@@ -149,16 +149,16 @@ class OTLPExporter:
     def _emit_span(
         self,
         tracer: Any,
-        req: Dict[str, Any],
-        resp: Optional[Dict[str, Any]],
-        session: Dict[str, Any],
+        req: dict[str, Any],
+        resp: dict[str, Any] | None,
+        session: dict[str, Any],
     ) -> None:
         method = req.get("method") or "unknown"
         span_name = f"mcp.{method}"
         latency_ms = resp.get("latency_ms") if resp else None
 
         # Build attributes
-        attrs: Dict[str, Any] = {
+        attrs: dict[str, Any] = {
             "mcp.method": method,
             "mcp.direction": str(req.get("direction") or ""),
             "mcp.server.command": str(session.get("server_command") or ""),

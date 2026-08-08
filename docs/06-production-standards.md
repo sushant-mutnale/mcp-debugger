@@ -11,6 +11,7 @@ To maintain transparency and ensure pipes are not polluted, the codebase adheres
 - **Logger Instantiation**: Instantiated at module level using:
   ```python
   import logging
+
   logger = logging.getLogger(__name__)
   ```
 - **Stream Isolation**:

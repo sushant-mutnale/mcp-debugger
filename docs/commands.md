@@ -19,6 +19,7 @@ mcp-debugger <command> [OPTIONS]
 | [`compare`](#compare) | Delta report between two sessions |
 | [`validate`](#validate) | Check MCP protocol compliance |
 | [`replay`](#replay) | Replay a session against a server |
+| [`web`](#web) | Start the Web UI for managing and inspecting recorded sessions in the browser. |
 | [`export`](#export) | Export session to JSON / Markdown / OTLP |
 | [`config`](#config) | Manage user preferences |
 | [`doctor`](#doctor) | Environment diagnostics |

@@ -1,6 +1,6 @@
 import asyncio
-from typing import Optional
 from unittest.mock import AsyncMock, patch
+
 from typer.testing import CliRunner
 
 from mcp_debugger.cli import app
@@ -14,7 +14,7 @@ def test_proxy_command_with_name(mock_db_path: str, runner: CliRunner) -> None:
         result = runner.invoke(app, ["proxy", "--server", "cat", "--name", "test-friendly-name"])
         assert result.exit_code == 0
 
-    async def verify() -> Optional[str]:
+    async def verify() -> str | None:
         db = Database(db_path=mock_db_path)
         await db.connect()
         sessions = await db.get_sessions()

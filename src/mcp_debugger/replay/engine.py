@@ -7,12 +7,14 @@ import json
 import logging
 import sys
 import time
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Set
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
+
 from pydantic import BaseModel
 
-from mcp_debugger.storage.database import Database
 from mcp_debugger.replay.diff import DiffNode, compare_json, render_diff
+from mcp_debugger.storage.database import Database
 
 logger = logging.getLogger("mcp_debugger.replay")
 
@@ -22,20 +24,20 @@ class ReplayedMessage(BaseModel):
 
     original_message_id: int
     method: str
-    request_sent: Dict[str, Any]
-    original_response: Optional[Dict[str, Any]] = None
-    replayed_response: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    request_sent: dict[str, Any]
+    original_response: dict[str, Any] | None = None
+    replayed_response: dict[str, Any] | None = None
+    error: str | None = None
     latency_ms: float
     matches: bool
-    diff: Optional[List[DiffNode]] = None
-    diff_text: Optional[str] = None
+    diff: list[DiffNode] | None = None
+    diff_text: str | None = None
 
 
 class ReplayResult(BaseModel):
     """Overall summary of a replay session."""
 
-    replay_id: Optional[int] = None
+    replay_id: int | None = None
     session_id: int
     target_server_command: str
     started_at: datetime
@@ -45,10 +47,10 @@ class ReplayResult(BaseModel):
     failed_responses: int
     mismatched_responses: int
     timed_out: int
-    messages: List[ReplayedMessage]
+    messages: list[ReplayedMessage]
 
 
-def deep_compare(val1: Any, val2: Any, ignore_keys: Optional[Set[str]] = None) -> bool:
+def deep_compare(val1: Any, val2: Any, ignore_keys: set[str] | None = None) -> bool:
     """Recursively compare two JSON-compatible values, ignoring specific keys."""
     if ignore_keys is None:
         ignore_keys = {"timestamp", "latency_ms"}
@@ -83,7 +85,7 @@ class ReplayEngine:
     async def _reader_loop(
         self,
         reader: asyncio.StreamReader,
-        pending_requests: Dict[str, asyncio.Future[Dict[str, Any]]],
+        pending_requests: dict[str, asyncio.Future[dict[str, Any]]],
     ) -> None:
         """Continuously read lines from the server stdout and resolve pending requests."""
         while True:
@@ -136,10 +138,10 @@ class ReplayEngine:
         target_server_command: str,
         timeout_ms: int = 5000,
         replay_mode: str = "exact",
-        message_filter: Optional[List[str]] = None,
+        message_filter: list[str] | None = None,
         persist: bool = True,
-        max_messages: Optional[int] = None,
-        on_message_replayed: Optional[Callable[[int, int], None]] = None,
+        max_messages: int | None = None,
+        on_message_replayed: Callable[[int, int], None] | None = None,
     ) -> ReplayResult:
         """Replay client messages from session_id to a new server.
 
@@ -156,7 +158,7 @@ class ReplayEngine:
         Returns:
             ReplayResult containing original vs replayed responses, diff status.
         """
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         original_msgs = await self.db.get_replay_messages(session_id)
 
         # Apply selective filtering
@@ -173,7 +175,7 @@ class ReplayEngine:
                 session_id=session_id,
                 target_server_command=target_server_command,
                 started_at=started_at,
-                ended_at=datetime.now(timezone.utc),
+                ended_at=datetime.now(UTC),
                 total_messages_replayed=0,
                 successful_responses=0,
                 failed_responses=0,
@@ -182,7 +184,7 @@ class ReplayEngine:
                 messages=[],
             )
 
-        process: Optional[asyncio.subprocess.Process] = None
+        process: asyncio.subprocess.Process | None = None
         # Launch target server
         try:
             process = await asyncio.create_subprocess_shell(
@@ -193,7 +195,7 @@ class ReplayEngine:
             )
         except Exception as e:
             # Failed to spawn server command
-            ended_at = datetime.now(timezone.utc)
+            ended_at = datetime.now(UTC)
             failed_msgs = []
             for msg in original_msgs:
                 failed_msgs.append(
@@ -243,15 +245,15 @@ class ReplayEngine:
 
         assert process.stdin and process.stdout
         # Increase StreamReader limit to 10MB to handle large tool outputs and schemas
-        setattr(process.stdout, "_limit", 10 * 1024 * 1024)
+        process.stdout._limit = 10 * 1024 * 1024
 
-        pending_requests: Dict[str, asyncio.Future[Dict[str, Any]]] = {}
+        pending_requests: dict[str, asyncio.Future[dict[str, Any]]] = {}
         reader_task = asyncio.create_task(self._reader_loop(process.stdout, pending_requests))
         stderr_task = None
         if process.stderr:
             stderr_task = asyncio.create_task(self._stderr_loop(process.stderr))
 
-        replayed_messages: List[ReplayedMessage] = []
+        replayed_messages: list[ReplayedMessage] = []
         server_terminated = False
 
         try:
@@ -268,7 +270,7 @@ class ReplayEngine:
                 is_notification = msg["message_type"] == "notification" or msg_id is None
 
                 # Reconstruct payload
-                payload: Dict[str, Any] = {"jsonrpc": "2.0"}
+                payload: dict[str, Any] = {"jsonrpc": "2.0"}
                 if msg_id is not None:
                     try:
                         payload["id"] = int(msg_id)
@@ -315,7 +317,7 @@ class ReplayEngine:
                                 )
                                 latency = (time.monotonic() - start_time) * 1000.0
                                 matches = deep_compare(replayed_resp, msg["original_response"])
-                            except asyncio.TimeoutError:
+                            except TimeoutError:
                                 # Clean up pending future
                                 if str(msg_id) in pending_requests:
                                     pending_requests.pop(str(msg_id))
@@ -394,7 +396,7 @@ class ReplayEngine:
 
             gc.collect()
 
-        ended_at = datetime.now(timezone.utc)
+        ended_at = datetime.now(UTC)
 
         # Calculate stats
         successful_responses = sum(

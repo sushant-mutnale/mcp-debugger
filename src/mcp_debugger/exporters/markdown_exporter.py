@@ -1,8 +1,8 @@
 """Markdown exporter – generates a human-readable session report."""
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, IO, List, Optional
+from datetime import UTC, datetime
+from typing import IO, Any
 
 from mcp_debugger.analytics import SessionStats
 
@@ -10,14 +10,14 @@ from mcp_debugger.analytics import SessionStats
 _RAW_TRUNCATE_BYTES = 4096
 
 
-def _fmt_duration(seconds: Optional[int]) -> str:
+def _fmt_duration(seconds: int | None) -> str:
     if seconds is None:
         return "N/A"
     m, s = divmod(seconds, 60)
     return f"{m}m {s}s" if m > 0 else f"{s}s"
 
 
-def _fmt_latency(ms: Optional[float]) -> str:
+def _fmt_latency(ms: float | None) -> str:
     if ms is None:
         return "—"
     return f"{ms:.1f}ms"
@@ -67,10 +67,10 @@ class MarkdownExporter:
 
     def export(
         self,
-        session: Dict[str, Any],
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-        errors: List[Dict[str, Any]],
+        session: dict[str, Any],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        errors: list[dict[str, Any]],
         stats: SessionStats,
         out: IO[str],
     ) -> None:
@@ -91,7 +91,7 @@ class MarkdownExporter:
 
     @staticmethod
     def _write_metadata(
-        session: Dict[str, Any],
+        session: dict[str, Any],
         stats: SessionStats,
         out: IO[str],
     ) -> None:
@@ -143,7 +143,7 @@ class MarkdownExporter:
         out.write("\n")
 
     @staticmethod
-    def _write_errors(errors: List[Dict[str, Any]], out: IO[str]) -> None:
+    def _write_errors(errors: list[dict[str, Any]], out: IO[str]) -> None:
         out.write("## Errors\n\n")
         if not errors:
             out.write("_No errors recorded._\n\n")
@@ -158,7 +158,7 @@ class MarkdownExporter:
             out.write(f"| {etype} | {code} | {msg} | {sug} |\n")
         out.write("\n")
 
-    def _write_message_log(self, messages: List[Dict[str, Any]], out: IO[str]) -> None:
+    def _write_message_log(self, messages: list[dict[str, Any]], out: IO[str]) -> None:
         out.write("## Message Log\n\n")
         if not messages:
             out.write("_No messages recorded._\n\n")
@@ -172,7 +172,7 @@ class MarkdownExporter:
             ts_raw = msg.get("timestamp")
             ts_str: str
             if isinstance(ts_raw, (int, float)):
-                ts_str = datetime.fromtimestamp(ts_raw / 1000.0, tz=timezone.utc).strftime(
+                ts_str = datetime.fromtimestamp(ts_raw / 1000.0, tz=UTC).strftime(
                     "%H:%M:%S.%f"
                 )[:-3]  # trim to milliseconds
             else:
@@ -187,7 +187,7 @@ class MarkdownExporter:
                 method = msg.get("method") or "message"
                 out.write(f"<details>\n<summary>Message #{i}: {method} ({direction})</summary>\n\n")
                 # Build a clean dict (decode JSON fields)
-                clean: Dict[str, Any] = {
+                clean: dict[str, Any] = {
                     k: _decode_json_field(v) for k, v in msg.items() if k not in ("session_id",)
                 }
                 raw_json = json.dumps(clean, indent=2 if self.pretty else None, default=str)

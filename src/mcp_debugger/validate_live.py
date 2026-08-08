@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import tempfile
-from typing import List, Tuple
 
 from mcp_debugger.protocol.validator import ProtocolValidator, ValidationResult
 from mcp_debugger.proxy.stdio_proxy import split_command
@@ -14,7 +13,7 @@ from mcp_debugger.storage.database import Database
 logger = logging.getLogger("mcp_debugger.validate_live")
 
 
-async def run_live_validation(server_command: str) -> Tuple[int, List[ValidationResult]]:
+async def run_live_validation(server_command: str) -> tuple[int, list[ValidationResult]]:
     """Starts the server, executes a predefined test sequence, captures all messages,
 
     and returns (session_id, validation_results).
@@ -44,7 +43,7 @@ async def run_live_validation(server_command: str) -> Tuple[int, List[Validation
             )
         ]
 
-    results: List[ValidationResult] = []
+    results: list[ValidationResult] = []
     process = None
 
     args = split_command(server_command)
@@ -180,7 +179,7 @@ async def run_live_validation(server_command: str) -> Tuple[int, List[Validation
     try:
         # Wrap everything in a 10s timeout
         await asyncio.wait_for(_execute_handshake_sequence(), timeout=10.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         results.append(
             ValidationResult(
                 rule_name="handshake_timeout",

@@ -1,7 +1,8 @@
 import asyncio
 import unittest
-from typing import Any, List, Optional
+from typing import Any
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from mcp_debugger.proxy.stdio_proxy import StdioProxy, split_command
@@ -11,8 +12,8 @@ from mcp_debugger.storage.database import Database
 class MockStreamWriter:
     """Mock writer simulating subprocess.stdin."""
 
-    def __init__(self, event: Optional[asyncio.Event] = None) -> None:
-        self.written_data: List[bytes] = []
+    def __init__(self, event: asyncio.Event | None = None) -> None:
+        self.written_data: list[bytes] = []
         self.event = event
 
     def write(self, data: bytes) -> None:
@@ -27,7 +28,7 @@ class MockStreamWriter:
 class MockStreamReader:
     """Mock reader simulating subprocess.stdout."""
 
-    def __init__(self, lines: List[str], event: Optional[asyncio.Event] = None) -> None:
+    def __init__(self, lines: list[str], event: asyncio.Event | None = None) -> None:
         self.lines = [line.encode("utf-8") for line in lines]
         self.idx = 0
         self.event = event
@@ -47,7 +48,7 @@ class MockProcess:
     """Mock process simulating asyncio.subprocess.Process."""
 
     def __init__(
-        self, stdout_lines: List[str], exit_code: int = 0, event: Optional[asyncio.Event] = None
+        self, stdout_lines: list[str], exit_code: int = 0, event: asyncio.Event | None = None
     ) -> None:
         self.stdin = MockStreamWriter(event)
         self.stdout = MockStreamReader(stdout_lines, event)
@@ -385,13 +386,13 @@ async def test_proxy_terminate_timeout(temp_db: Database) -> None:
 
     original_wait_for = asyncio.wait_for
 
-    async def mock_wait_for(aw: Any, timeout: Optional[float], **kwargs: Any) -> Any:
+    async def mock_wait_for(aw: Any, timeout: float | None, **kwargs: Any) -> Any:
         if timeout == 3.0:
             try:
                 aw.close()
             except AttributeError:
                 pass
-            raise asyncio.TimeoutError()
+            raise TimeoutError()
         return await original_wait_for(aw, timeout, **kwargs)
 
     with (
@@ -712,13 +713,12 @@ async def test_proxy_handle_message_database_errors(
     # Mock log_message to succeed, but log_error to fail
     with patch.object(
         temp_db, "log_message", new_callable=unittest.mock.AsyncMock, return_value=123
+    ), patch.object(
+        temp_db, "log_error", side_effect=RuntimeError("Log error database failure")
     ):
-        with patch.object(
-            temp_db, "log_error", side_effect=RuntimeError("Log error database failure")
-        ):
-            await proxy._handle_message(json.dumps(err_payload), "server_to_client")
-            captured = capsys.readouterr()
-            assert "Failed to log classified error to database" in captured.err
+        await proxy._handle_message(json.dumps(err_payload), "server_to_client")
+        captured = capsys.readouterr()
+        assert "Failed to log classified error to database" in captured.err
 
     # 3. Invalid error code (non-integer error code string)
     invalid_code_payload = {
@@ -728,15 +728,14 @@ async def test_proxy_handle_message_database_errors(
     }
     with patch.object(
         temp_db, "log_message", new_callable=unittest.mock.AsyncMock, return_value=123
-    ):
-        with patch.object(
-            temp_db, "log_error", new_callable=unittest.mock.AsyncMock
-        ) as mock_log_error:
-            await proxy._handle_message(json.dumps(invalid_code_payload), "server_to_client")
-            # Should have been logged with error_code=None
-            mock_log_error.assert_called_once()
-            _, kwargs = mock_log_error.call_args
-            assert kwargs["error_code"] is None
+    ), patch.object(
+        temp_db, "log_error", new_callable=unittest.mock.AsyncMock
+    ) as mock_log_error:
+        await proxy._handle_message(json.dumps(invalid_code_payload), "server_to_client")
+        # Should have been logged with error_code=None
+        mock_log_error.assert_called_once()
+        _, kwargs = mock_log_error.call_args
+        assert kwargs["error_code"] is None
 
 
 @pytest.mark.asyncio

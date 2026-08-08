@@ -4,12 +4,13 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
+
 import pytest
 
-from mcp_debugger.storage.database import Database
-from mcp_debugger.replay.engine import ReplayEngine, deep_compare
 from mcp_debugger.replay.diff import DiffType
+from mcp_debugger.replay.engine import ReplayEngine, deep_compare
+from mcp_debugger.storage.database import Database
 
 
 async def test_get_replay_messages(temp_db: Database) -> None:
@@ -219,16 +220,16 @@ async def test_replay_integration_filesystem(temp_db: Database) -> None:
             stderr=asyncio.subprocess.PIPE,
         )
         assert process.stdin and process.stdout and process.stderr
-        setattr(process.stdout, "_limit", 10 * 1024 * 1024)
+        process.stdout._limit = 10 * 1024 * 1024
 
         # Wait for npx startup
         await asyncio.sleep(10.0)
 
-        async def read_json_response(stdout: asyncio.StreamReader) -> Dict[str, Any]:
+        async def read_json_response(stdout: asyncio.StreamReader) -> dict[str, Any]:
             for _ in range(100):  # limit loop to prevent infinite hang
                 try:
                     line_bytes = await asyncio.wait_for(stdout.readline(), timeout=15.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     raise TimeoutError("Timeout waiting for response from server")
                 if not line_bytes:
                     raise EOFError("Connection closed before response received")

@@ -18,6 +18,7 @@
 |---|---|
 | 🔍 **Record** | Capture every JSON-RPC message between an MCP client and server |
 | 📋 **Inspect** | Browse messages with syntax-highlighted, formatted terminal output |
+| 🌐 **Web UI** | Visual interface for managing and inspecting recorded MCP sessions in the browser |
 | ✅ **Validate** | Check MCP protocol compliance — handshake order, method names, schemas |
 | 🔄 **Replay** | Regression-test server changes by replaying recorded sessions |
 | 📊 **Stats** | Visualise tool usage, latency trends, and error rates |
@@ -119,6 +120,7 @@ Every message between Claude and your server is now recorded transparently.
 | Document | Description |
 |---|---|
 | [Command Reference](docs/commands.md) | Every CLI command with all options and examples |
+| [Web UI](docs/web-ui.md) | How to use the built-in browser interface |
 | [Architecture](docs/architecture.md) | How it works — components, data flow, sequence diagrams |
 | [Tutorials](docs/tutorials.md) | Step-by-step workflows for common use cases |
 | [Configuration](docs/config.md) | All config keys, defaults, and examples |
