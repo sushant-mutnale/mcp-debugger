@@ -634,6 +634,22 @@ class Database:
             logger.warning("Failed to get session: %s", e)
             return None
 
+    async def delete_session(self, session_id: int) -> bool:
+        """Delete a session and all related records (messages, tools, errors).
+
+        Returns True if a session was deleted, False if it did not exist.
+        """
+        try:
+            conn = await self._get_conn()
+            # Related tables are cleaned via ON DELETE CASCADE (foreign keys = ON)
+            async with conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,)) as cursor:
+                deleted = cursor.rowcount > 0
+            await conn.commit()
+            return deleted
+        except Exception as e:
+            logger.warning("Failed to delete session %s: %s", session_id, e)
+            return False
+
     async def get_messages(
         self,
         session_id: int,
@@ -827,6 +843,180 @@ class Database:
         except Exception as e:
             logger.warning("Failed to get sessions: %s", e)
             return []
+
+    async def count_sessions(
+        self,
+        search: str | None = None,
+        status_filter: str | None = None,
+    ) -> int:
+        """Return total count of sessions matching the given filters."""
+        try:
+            conn = await self._get_conn()
+            query = "SELECT COUNT(*) FROM sessions"
+            params: list[Any] = []
+            conditions: list[str] = []
+            if status_filter is not None:
+                conditions.append("status = ?")
+                params.append(status_filter)
+            if search:
+                conditions.append(
+                    "(friendly_name LIKE ? OR server_command LIKE ? OR CAST(id AS TEXT) LIKE ?)"
+                )
+                like = f"%{search}%"
+                params.extend([like, like, like])
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+            async with conn.execute(query, params) as cursor:
+                row = await cursor.fetchone()
+                return int(row[0]) if row else 0
+        except Exception as e:
+            logger.warning("Failed to count sessions: %s", e)
+            return 0
+
+    async def get_sessions_paginated(
+        self,
+        page: int = 1,
+        limit: int = 25,
+        search: str | None = None,
+        status_filter: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return (sessions, total_count) for the given page with optional search/filter."""
+        total = await self.count_sessions(search=search, status_filter=status_filter)
+        try:
+            conn = await self._get_conn()
+            query = """
+                SELECT
+                    id,
+                    session_uuid,
+                    friendly_name,
+                    server_command,
+                    server_name,
+                    started_at,
+                    ended_at,
+                    status,
+                    total_messages,
+                    total_tools_discovered,
+                    total_errors,
+                    (CAST(strftime('%s', COALESCE(ended_at, CURRENT_TIMESTAMP)) AS INTEGER)
+                     - CAST(strftime('%s', started_at) AS INTEGER)) AS duration_seconds
+                FROM sessions
+            """
+            params: list[Any] = []
+            conditions: list[str] = []
+            if status_filter is not None:
+                conditions.append("status = ?")
+                params.append(status_filter)
+            if search:
+                conditions.append(
+                    "(friendly_name LIKE ? OR server_command LIKE ? OR CAST(id AS TEXT) LIKE ?)"
+                )
+                like = f"%{search}%"
+                params.extend([like, like, like])
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+            query += " ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?"
+            offset = (page - 1) * limit
+            params.extend([limit, offset])
+            async with conn.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows], total
+        except Exception as e:
+            logger.warning("Failed to get sessions paginated: %s", e)
+            return [], total
+
+    async def get_session_stats(self, session_id: int) -> dict[str, Any]:
+        """Aggregate per-session stats: message counts, tool counts, error count, latency."""
+        try:
+            conn = await self._get_conn()
+            # Message counts
+            async with conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_messages,
+                    SUM(CASE WHEN direction = 'client_to_server' THEN 1 ELSE 0 END) AS client_to_server,
+                    SUM(CASE WHEN direction = 'server_to_client' THEN 1 ELSE 0 END) AS server_to_client,
+                    AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END) AS avg_latency_ms,
+                    MIN(latency_ms) AS min_latency_ms,
+                    MAX(latency_ms) AS max_latency_ms
+                FROM messages
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ) as cursor:
+                msg_row = await cursor.fetchone()
+
+            # Tool counts
+            async with conn.execute(
+                "SELECT COUNT(*) AS tools_discovered FROM tools WHERE session_id = ?",
+                (session_id,),
+            ) as cursor:
+                tools_row = await cursor.fetchone()
+
+            async with conn.execute(
+                """
+                SELECT COUNT(*) AS tools_called FROM messages
+                WHERE session_id = ? AND method = 'tools/call'
+                """,
+                (session_id,),
+            ) as cursor:
+                calls_row = await cursor.fetchone()
+
+            # Error count
+            async with conn.execute(
+                "SELECT COUNT(*) AS total_errors FROM errors WHERE session_id = ?",
+                (session_id,),
+            ) as cursor:
+                err_row = await cursor.fetchone()
+
+            total_messages = int(msg_row["total_messages"]) if msg_row else 0
+            total_errors = int(err_row["total_errors"]) if err_row else 0
+            error_rate = round(total_errors / total_messages * 100, 1) if total_messages else 0.0
+
+            def _round_or_none(val: Any) -> float | None:
+                return round(float(val), 1) if val is not None else None
+
+            return {
+                "total_messages": total_messages,
+                "client_to_server": int(msg_row["client_to_server"]) if msg_row else 0,
+                "server_to_client": int(msg_row["server_to_client"]) if msg_row else 0,
+                "tools_discovered": int(tools_row["tools_discovered"]) if tools_row else 0,
+                "tools_called": int(calls_row["tools_called"]) if calls_row else 0,
+                "total_errors": total_errors,
+                "error_rate": error_rate,
+                "avg_latency_ms": _round_or_none(msg_row["avg_latency_ms"] if msg_row else None),
+                "min_latency_ms": _round_or_none(msg_row["min_latency_ms"] if msg_row else None),
+                "max_latency_ms": _round_or_none(msg_row["max_latency_ms"] if msg_row else None),
+            }
+        except Exception as e:
+            logger.warning("Failed to get session stats: %s", e)
+            return {}
+
+    async def get_global_session_stats(self) -> dict[str, int]:
+        """Return counts of sessions by status for the stats bar."""
+        try:
+            conn = await self._get_conn()
+            async with conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
+                    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error
+                FROM sessions
+                """
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        "total": int(row["total"]),
+                        "running": int(row["running"]),
+                        "completed": int(row["completed"]),
+                        "error": int(row["error"]),
+                    }
+                return {"total": 0, "running": 0, "completed": 0, "error": 0}
+        except Exception as e:
+            logger.warning("Failed to get global session stats: %s", e)
+            return {"total": 0, "running": 0, "completed": 0, "error": 0}
 
     async def get_replay_messages(self, session_id: int) -> list[dict[str, Any]]:
         """Load client requests/notifications and their matched original responses for replay."""

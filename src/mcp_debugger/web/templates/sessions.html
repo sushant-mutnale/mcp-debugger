@@ -1,285 +1,173 @@
 {% extends "base.html" %}
 
-{% block title %}Sessions - MCP Debugger{% endblock %}
+{% block title %}Sessions — MCP Debugger{% endblock %}
 
 {% block content %}
-<div class="mb-6 flex justify-between items-end">
+<!-- Page header -->
+<div class="mb-6 flex flex-wrap justify-between items-center gap-4">
     <div>
-        <h2 class="text-2xl font-semibold text-white mb-1">Recording Sessions</h2>
-        <p class="text-sm text-gray-400">View and inspect MCP communication sessions</p>
+        <h2 class="text-2xl font-bold text-white">Sessions</h2>
+        <p class="text-sm text-gray-500 mt-0.5">Browse and inspect recorded MCP sessions</p>
     </div>
-    
-    <div class="flex gap-4 items-center">
-        <!-- Search/Filter Input -->
-        <div class="relative">
-            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg class="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                </svg>
-            </div>
-            <input type="text" id="searchInput" placeholder="Filter sessions..." 
-                class="bg-[#1f2335] border border-panel text-white text-sm rounded-md focus:ring-accent focus:border-accent block w-full pl-10 p-2.5 transition-all">
-        </div>
-        
-        <button id="refreshBtn" class="bg-panel border border-panel hover:bg-[#2f354a] text-white p-2.5 rounded-md transition-colors" title="Refresh">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+    <button id="newSessionBtn"
+            class="flex items-center gap-2 bg-[#7aa2f7] hover:bg-[#5d8ef5] text-[#1a1b26] font-semibold text-sm px-4 py-2 rounded-lg transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        Record New Session
+    </button>
+</div>
+
+<!-- Search & Filter bar -->
+<div class="flex flex-wrap gap-3 mb-5">
+    <!-- Search -->
+    <div class="relative flex-grow min-w-48">
+        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <svg class="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
-        </button>
+        </div>
+        <input type="text" id="searchInput" placeholder="Search by name, server, or ID…"
+               class="w-full bg-[#1f2335] border border-panel text-white text-sm rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:border-[#7aa2f7] transition-colors">
     </div>
+
+    <!-- Status filter -->
+    <select id="statusFilter"
+            class="bg-[#1f2335] border border-panel text-sm text-gray-300 rounded-lg px-3 py-2.5 focus:outline-none focus:border-[#7aa2f7] transition-colors">
+        <option value="">All statuses</option>
+        <option value="completed">✓ Completed</option>
+        <option value="running">● Running</option>
+        <option value="error">✗ Error</option>
+    </select>
+
+    <!-- Per-page selector -->
+    <select id="limitSelect"
+            class="bg-[#1f2335] border border-panel text-sm text-gray-300 rounded-lg px-3 py-2.5 focus:outline-none focus:border-[#7aa2f7] transition-colors">
+        <option value="25">25 / page</option>
+        <option value="50">50 / page</option>
+        <option value="100">100 / page</option>
+    </select>
+
+    <!-- Refresh -->
+    <button id="refreshBtn" title="Refresh"
+            class="bg-panel border border-panel hover:bg-[#2f354a] text-white px-3 py-2.5 rounded-lg transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+    </button>
 </div>
 
 <!-- Loading State -->
-<div id="loadingState" class="py-12 flex flex-col items-center justify-center text-gray-500">
-    <svg class="animate-spin h-8 w-8 mb-4 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-    </svg>
-    <p>Loading sessions...</p>
+<div id="loadingState" class="py-16 flex flex-col items-center justify-center text-gray-500">
+    <div class="spinner mb-4"></div>
+    <p class="text-sm">Loading sessions…</p>
 </div>
 
-<!-- Empty State (Hidden by default) -->
-<div id="emptyState" class="hidden py-16 flex flex-col items-center justify-center text-center bg-panel border border-panel rounded-lg shadow-sm">
-    <svg class="w-16 h-16 text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
-    </svg>
-    <h3 class="text-lg font-medium text-white mb-1">No sessions found</h3>
-    <p class="text-sm text-gray-400 mb-6 max-w-md">You haven't recorded any MCP debugging sessions yet, or none match your current filter.</p>
-    <div class="bg-[#1f2335] p-4 rounded-md text-left text-sm font-mono text-gray-300 border border-panel">
-        <span class="text-gray-500"># Start a new session in your terminal</span><br>
-        <span class="text-accent">mcp-debugger</span> run <span class="text-yellow-200">"npx @modelcontextprotocol/server-everything"</span>
+<!-- Empty State -->
+<div id="emptyState" class="hidden py-16 flex flex-col items-center justify-center text-center
+                             bg-panel border border-panel rounded-xl">
+    <div class="text-5xl mb-4">📭</div>
+    <h3 class="text-lg font-semibold text-white mb-2">No sessions found</h3>
+    <p class="text-sm text-gray-500 mb-6 max-w-sm">
+        Record your first session by running the proxy command below.
+    </p>
+    <div class="code-block text-left max-w-lg w-full">
+        <span class="text-gray-500"># In your terminal:</span><br>
+        <span class="text-[#7aa2f7]">mcp-debugger</span>
+        <span class="text-white"> proxy </span>
+        <span class="text-[#9ece6a]">--server "npx -y @modelcontextprotocol/server-filesystem /tmp"</span>
+        <span class="text-[#e0af68]"> --name "my-session"</span>
     </div>
 </div>
 
 <!-- Sessions Table -->
-<div id="tableContainer" class="hidden bg-panel rounded-lg border border-panel overflow-hidden shadow-lg">
-    <div class="overflow-x-auto">
-        <table class="w-full text-sm text-left">
-            <thead class="text-xs uppercase border-b border-panel font-semibold">
+<div id="tableContainer" class="hidden bg-panel rounded-xl border border-panel shadow-lg overflow-hidden">
+    <div class="table-wrapper">
+        <table class="sessions-table w-full text-sm text-left">
+            <thead class="text-xs uppercase border-b border-panel font-semibold tracking-wider">
                 <tr>
-                    <th scope="col" class="px-6 py-4">ID / Name</th>
-                    <th scope="col" class="px-6 py-4">Server Command</th>
-                    <th scope="col" class="px-6 py-4">Status</th>
-                    <th scope="col" class="px-6 py-4">Stats</th>
-                    <th scope="col" class="px-6 py-4">Started At</th>
-                    <th scope="col" class="px-6 py-4 text-right">Actions</th>
+                    <th class="px-5 py-4">Name / ID</th>
+                    <th class="px-5 py-4">Server Command</th>
+                    <th class="px-5 py-4">Status</th>
+                    <th class="px-5 py-4">Stats</th>
+                    <th class="px-5 py-4">Started</th>
+                    <th class="px-5 py-4 text-right">Actions</th>
                 </tr>
             </thead>
-            <tbody id="sessionsTbody">
-                <!-- Rows injected via JS -->
-            </tbody>
+            <tbody id="sessionsTbody"></tbody>
         </table>
     </div>
-    
+
     <!-- Pagination -->
-    <div class="px-6 py-4 border-t border-panel flex items-center justify-between">
-        <span class="text-sm text-gray-400">
-            Showing <span id="pageStart" class="font-medium text-white">0</span> to <span id="pageEnd" class="font-medium text-white">0</span> sessions
-        </span>
-        <div class="flex gap-2">
-            <button id="prevBtn" class="px-3 py-1.5 text-sm bg-[#1f2335] border border-panel hover:bg-[#2f354a] rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Previous</button>
-            <button id="nextBtn" class="px-3 py-1.5 text-sm bg-[#1f2335] border border-panel hover:bg-[#2f354a] rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Next</button>
+    <div class="px-5 py-4 border-t border-panel flex flex-wrap items-center justify-between gap-3">
+        <div class="text-sm text-gray-500">
+            <span id="totalInfo">—</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="pageInfo" class="text-sm text-gray-400"></span>
+            <button id="prevBtn"
+                    class="px-3 py-1.5 text-xs bg-[#1f2335] border border-panel hover:bg-[#2f354a] rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                ← Previous
+            </button>
+            <button id="nextBtn"
+                    class="px-3 py-1.5 text-xs bg-[#1f2335] border border-panel hover:bg-[#2f354a] rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                Next →
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- New Session Modal -->
+<div id="newSessionModal" class="modal-overlay hidden">
+    <div class="modal-box">
+        <div class="flex justify-between items-start mb-4">
+            <h3 class="text-lg font-bold text-white">Record a New Session</h3>
+            <button id="closeModalBtn" class="text-gray-500 hover:text-white transition-colors">✕</button>
+        </div>
+        <p class="text-sm text-gray-400 mb-4">
+            Run the following command in your terminal, then interact with your MCP client.
+            Press <kbd class="bg-[#1f2335] border border-panel rounded px-1.5 py-0.5 text-xs">Ctrl+C</kbd> when done.
+        </p>
+        <div class="code-block mb-4">
+            <span class="text-[#7aa2f7]">mcp-debugger</span>
+            <span class="text-white"> proxy \</span><br>
+            <span class="text-gray-500 pl-4">--server </span>
+            <span class="text-[#9ece6a]">"npx -y @modelcontextprotocol/server-filesystem /tmp"</span>
+            <span class="text-white"> \</span><br>
+            <span class="text-gray-500 pl-4">--name </span>
+            <span class="text-[#e0af68]">"my-session"</span>
+        </div>
+        <p class="text-xs text-gray-600">
+            Or add to your Claude Desktop config to record automatically.
+        </p>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="deleteModal" class="modal-overlay hidden">
+    <div class="modal-box max-w-sm">
+        <h3 class="text-lg font-bold text-white mb-2">Delete Session?</h3>
+        <p class="text-sm text-gray-400 mb-5">
+            This will permanently delete
+            <span class="font-semibold text-white" id="deleteName"></span>
+            and all its messages, tools, and errors.
+        </p>
+        <div class="flex gap-3 justify-end">
+            <button id="cancelDeleteBtn"
+                    class="px-4 py-2 text-sm bg-panel border border-panel hover:bg-[#2f354a] rounded-lg transition-colors">
+                Cancel
+            </button>
+            <button id="confirmDeleteBtn"
+                    class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white font-semibold rounded-lg transition-colors">
+                Delete
+            </button>
         </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        let allSessions = [];
-        let filteredSessions = [];
-        let currentPage = 1;
-        const limit = 25;
-        
-        const tbody = document.getElementById('sessionsTbody');
-        const searchInput = document.getElementById('searchInput');
-        const loadingState = document.getElementById('loadingState');
-        const emptyState = document.getElementById('emptyState');
-        const tableContainer = document.getElementById('tableContainer');
-        const refreshBtn = document.getElementById('refreshBtn');
-        const prevBtn = document.getElementById('prevBtn');
-        const nextBtn = document.getElementById('nextBtn');
-        const pageStartEl = document.getElementById('pageStart');
-        const pageEndEl = document.getElementById('pageEnd');
-        
-        // Fetch sessions from API
-        async function fetchSessions() {
-            try {
-                showLoading();
-                const response = await fetch('/api/sessions?limit=1000');
-                if (!response.ok) throw new Error('Failed to fetch');
-                
-                allSessions = await response.json();
-                applyFilters();
-            } catch (err) {
-                console.error("Error fetching sessions:", err);
-                // Could show an error toast here in a real app
-                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-4 text-center text-red-400">Error loading sessions. Is the database initialized?</td></tr>`;
-                showTable();
-            }
-        }
-        
-        // Filter logic
-        function applyFilters() {
-            const query = searchInput.value.toLowerCase();
-            if (!query) {
-                filteredSessions = [...allSessions];
-            } else {
-                filteredSessions = allSessions.filter(s => {
-                    return (
-                        (s.friendly_name && s.friendly_name.toLowerCase().includes(query)) ||
-                        (s.server_command && s.server_command.toLowerCase().includes(query)) ||
-                        (s.status && s.status.toLowerCase().includes(query)) ||
-                        (s.id && s.id.toString().includes(query))
-                    );
-                });
-            }
-            
-            currentPage = 1;
-            renderTable();
-        }
-        
-        // Format date helper
-        function formatDate(dateStr) {
-            if (!dateStr) return 'N/A';
-            const d = new Date(dateStr + 'Z'); // SQLite assumes UTC usually, adjust if needed
-            return d.toLocaleString(undefined, { 
-                month: 'short', day: 'numeric', 
-                hour: '2-digit', minute: '2-digit', second: '2-digit' 
-            });
-        }
-        
-        // Format duration helper
-        function formatDuration(seconds) {
-            if (seconds === null || seconds === undefined) return '-';
-            if (seconds < 60) return `${seconds}s`;
-            const mins = Math.floor(seconds / 60);
-            const secs = seconds % 60;
-            return `${mins}m ${secs}s`;
-        }
-        
-        // Render the UI
-        function renderTable() {
-            if (filteredSessions.length === 0) {
-                showEmpty();
-                return;
-            }
-            
-            showTable();
-            
-            // Pagination math
-            const total = filteredSessions.length;
-            const totalPages = Math.ceil(total / limit);
-            const startIdx = (currentPage - 1) * limit;
-            const endIdx = Math.min(startIdx + limit, total);
-            
-            const currentSlice = filteredSessions.slice(startIdx, endIdx);
-            
-            // Update pagination UI
-            pageStartEl.textContent = startIdx + 1;
-            pageEndEl.textContent = endIdx;
-            prevBtn.disabled = currentPage === 1;
-            nextBtn.disabled = currentPage === totalPages;
-            
-            // Build HTML
-            tbody.innerHTML = '';
-            
-            currentSlice.forEach(session => {
-                const tr = document.createElement('tr');
-                
-                // Status badge logic
-                let statusBadge = '';
-                if (session.status === 'completed') {
-                    statusBadge = `<span class="px-2 py-1 rounded text-xs font-medium status-completed">Completed</span>`;
-                } else if (session.status === 'running') {
-                    statusBadge = `<span class="px-2 py-1 rounded text-xs font-medium status-running animate-pulse">Running</span>`;
-                } else {
-                    statusBadge = `<span class="px-2 py-1 rounded text-xs font-medium status-error">Error</span>`;
-                }
-                
-                // Truncate command
-                let cmd = session.server_command || '';
-                if (cmd.length > 50) cmd = cmd.substring(0, 47) + '...';
-                
-                const name = session.friendly_name || `Session #${session.id}`;
-                
-                tr.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="font-medium text-white">${name}</div>
-                        <div class="text-xs text-gray-500 font-mono mt-0.5">ID: ${session.id}</div>
-                    </td>
-                    <td class="px-6 py-4">
-                        <code class="text-xs bg-[#1f2335] px-2 py-1 rounded border border-panel text-gray-300 font-mono">${cmd}</code>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        ${statusBadge}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-400">
-                        <div class="flex items-center gap-1 mb-1" title="Total Messages">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
-                            ${session.total_messages || 0}
-                        </div>
-                        <div class="flex items-center gap-1" title="Duration">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                            ${formatDuration(session.duration_seconds)}
-                        </div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-gray-400">
-                        ${formatDate(session.started_at)}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <!-- We don't have the detail view yet, so we disable the link for Phase 1 -->
-                        <button disabled class="text-accent hover:text-white opacity-50 cursor-not-allowed mr-3" title="Detail view coming soon">View Details</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-        
-        function showLoading() {
-            loadingState.classList.remove('hidden');
-            emptyState.classList.add('hidden');
-            tableContainer.classList.add('hidden');
-        }
-        
-        function showEmpty() {
-            loadingState.classList.add('hidden');
-            emptyState.classList.remove('hidden');
-            tableContainer.classList.add('hidden');
-        }
-        
-        function showTable() {
-            loadingState.classList.add('hidden');
-            emptyState.classList.add('hidden');
-            tableContainer.classList.remove('hidden');
-        }
-        
-        // Event Listeners
-        searchInput.addEventListener('input', applyFilters);
-        
-        refreshBtn.addEventListener('click', () => {
-            searchInput.value = '';
-            fetchSessions();
-        });
-        
-        prevBtn.addEventListener('click', () => {
-            if (currentPage > 1) {
-                currentPage--;
-                renderTable();
-            }
-        });
-        
-        nextBtn.addEventListener('click', () => {
-            const totalPages = Math.ceil(filteredSessions.length / limit);
-            if (currentPage < totalPages) {
-                currentPage++;
-                renderTable();
-            }
-        });
-        
-        // Initial load
-        fetchSessions();
-    });
-</script>
+<script src="/static/app.js"></script>
 {% endblock %}

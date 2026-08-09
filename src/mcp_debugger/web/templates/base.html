@@ -4,79 +4,41 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}MCP Debugger{% endblock %}</title>
-    
-    <!-- Tailwind CSS (CDN for development/simplicity) -->
+
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Custom styling to give it a "Tokyo Night" / DevTools feel -->
+
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="/static/style.css">
+
     <style>
-        body {
-            background-color: #1a1b26; /* Tokyo Night background */
-            color: #a9b1d6; /* Tokyo Night foreground */
-        }
-        
-        .bg-panel {
-            background-color: #24283b;
-        }
-        
-        .border-panel {
-            border-color: #414868;
-        }
-        
-        .text-accent {
-            color: #7aa2f7; /* Tokyo Night blue */
-        }
-        
-        /* Table specific styling */
-        th {
-            background-color: #1f2335;
-            color: #c0caf5;
-        }
-        
-        tr {
-            border-bottom: 1px solid #292e42;
-        }
-        
-        tr:hover {
-            background-color: #2f354a;
-        }
-        
-        /* Status Badges */
-        .status-completed {
-            background-color: rgba(158, 206, 106, 0.2);
-            color: #9ece6a;
-            border: 1px solid #9ece6a;
-        }
-        
-        .status-running {
-            background-color: rgba(224, 175, 104, 0.2);
-            color: #e0af68;
-            border: 1px solid #e0af68;
-        }
-        
-        .status-error {
-            background-color: rgba(247, 118, 142, 0.2);
-            color: #f7768e;
-            border: 1px solid #f7768e;
-        }
+        body { background-color: #1a1b26; color: #a9b1d6; }
+        .bg-panel   { background-color: #24283b; }
+        .border-panel { border-color: #414868; }
+        .text-accent  { color: #7aa2f7; }
+        th { background-color: #1f2335; color: #c0caf5; }
+        tr { border-bottom: 1px solid #292e42; }
     </style>
-    
+
     {% block head %}{% endblock %}
 </head>
-<body class="min-h-screen flex flex-col font-sans">
-    
+<body class="min-h-screen flex flex-col font-sans antialiased">
+
     <!-- Header -->
-    <header class="bg-panel border-b border-panel py-4 px-6 flex justify-between items-center sticky top-0 z-10 shadow-md">
-        <div class="flex items-center gap-3">
-            <svg class="w-8 h-8 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+    <header class="bg-panel border-b border-panel py-3 px-6 flex justify-between items-center sticky top-0 z-10 shadow-lg">
+        <a href="/" class="flex items-center gap-3 no-underline">
+            <svg class="w-7 h-7 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
             </svg>
-            <h1 class="text-xl font-bold tracking-wider text-white">MCP<span class="text-accent font-light">DEBUGGER</span></h1>
-        </div>
+            <span class="text-lg font-bold tracking-wider text-white">
+                MCP<span class="text-accent font-light">DEBUGGER</span>
+            </span>
+        </a>
         <nav>
-            <ul class="flex space-x-6 text-sm font-medium">
-                <li><a href="/" class="hover:text-white transition-colors duration-200">Sessions</a></li>
-                <!-- Future links could go here -->
+            <ul class="flex items-center space-x-5 text-sm font-medium">
+                <li><a href="/" class="hover:text-white transition-colors duration-150">📊 Sessions</a></li>
+                <li><a href="/docs" class="hover:text-white transition-colors duration-150 text-gray-500">📖 API Docs</a></li>
             </ul>
         </nav>
     </header>
@@ -89,8 +51,9 @@
     </main>
 
     <!-- Footer -->
-    <footer class="bg-panel border-t border-panel py-4 px-6 text-center text-xs text-gray-500 mt-auto">
-        <p>mcp-debugger &bull; Model Context Protocol Debugging Proxy</p>
+    <footer class="bg-panel border-t border-panel py-3 px-6 text-center text-xs text-gray-600">
+        mcp-debugger &bull; Model Context Protocol Debugging Proxy &bull;
+        <a href="https://github.com/sushant-mutnale/mcp-debugger" class="hover:text-gray-400 transition-colors">GitHub</a>
     </footer>
 
     {% block scripts %}{% endblock %}
