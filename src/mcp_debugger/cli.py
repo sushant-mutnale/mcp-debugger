@@ -2298,6 +2298,283 @@ def web(
     uvicorn.run("mcp_debugger.web.app:app", host=host, port=port, log_level="info")
 
 
+@app.command(name="attribute")
+def attribute(
+    session_id: int = typer.Argument(..., help="The ID of the session to attribute"),
+    live: bool = typer.Option(
+        False, "--live", help="Run live LLM counterfactual replay instead of local VCR replay"
+    ),
+    perturbation: str = typer.Option(
+        "both", "--perturbation", help="Perturbation type to apply: empty, error, or both"
+    ),
+    max_steps: int = typer.Option(
+        5, "--max-steps", help="Maximum steps to generate in counterfactual branch"
+    ),
+    json_mode: bool = typer.Option(
+        False, "--json", help="Output structured JSON diagnosis"
+    ),
+) -> None:
+    """Analyze a failed session to classify failure boundary and isolate Point of Commitment (PoC)."""
+    from mcp_debugger.attribution.ablation import AblationEngine
+    from mcp_debugger.attribution.classifier import FailureClassifier
+    from mcp_debugger.attribution.live import LiveCounterfactualEngine
+    from mcp_debugger.attribution.models import (
+        AblationResult,
+        AttributionReport,
+        FailureCategory,
+        PerturbationType,
+        PointOfCommitment,
+    )
+
+    async def _run() -> None:
+        db = Database()
+        try:
+            try:
+                await db.connect()
+                session = await db.get_session(session_id)
+            except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
+                console.print(
+                    f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
+                )
+                sys.exit(1)
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
+
+            if not session:
+                console.print(f"Session {session_id} not found")
+                sys.exit(1)
+
+            messages = await db.get_messages(session_id=session_id)
+            steps = await db.get_steps(session_id=session_id)
+        finally:
+            await db.close()
+
+        # Determine perturbation type
+        ptype = PerturbationType.TOOL_ERROR
+        if perturbation.lower() == "empty":
+            ptype = PerturbationType.EMPTY_RESULT
+        elif perturbation.lower() == "error":
+            ptype = PerturbationType.TOOL_ERROR
+
+        if live:
+            live_engine = LiveCounterfactualEngine(max_steps=max_steps)
+            candidate_idx = 0
+            for s in steps:
+                if s.get("step_type") == "tool_call":
+                    candidate_idx = s.get("step_index", 0)
+                    break
+            live_res = await live_engine.run_live_ablation(
+                session_id=session_id,
+                steps=steps,
+                candidate_step_index=candidate_idx,
+                perturbation=ptype,
+                messages=messages,
+            )
+            poc = None
+            if live_res.outcome_changed:
+                target_step = next(
+                    (s for s in steps if s.get("step_index") == candidate_idx), {}
+                )
+                poc = PointOfCommitment(
+                    step_index=candidate_idx,
+                    step_type=target_step.get("step_type", "tool_call"),
+                    agent_name=target_step.get("agent_name"),
+                    tool_name=live_engine.classifier._extract_tool_name(
+                        target_step.get("input")
+                    ),
+                    perturbation=ptype,
+                    description=f"Live LLM re-execution from step {candidate_idx} altered failure outcome.",
+                )
+            report = AttributionReport(
+                session_id=session_id,
+                original_diagnosis=live_res.original_diagnosis,
+                point_of_commitment=poc,
+                ablation_results=[
+                    AblationResult(
+                        step_index=candidate_idx,
+                        perturbation=ptype,
+                        original_diagnosis=live_res.original_diagnosis,
+                        counterfactual_diagnosis=live_res.counterfactual_diagnosis,
+                        outcome_changed=live_res.outcome_changed,
+                        divergence_score=1.0 if live_res.outcome_changed else 0.0,
+                    )
+                ],
+            )
+        else:
+            engine = AblationEngine()
+            report = engine.run_attribution(
+                session_id=session_id,
+                steps=steps,
+                messages=messages,
+                perturbation=ptype,
+            )
+            if report.point_of_commitment is None and perturbation.lower() == "both":
+                report_empty = engine.run_attribution(
+                    session_id=session_id,
+                    steps=steps,
+                    messages=messages,
+                    perturbation=PerturbationType.EMPTY_RESULT,
+                )
+                if report_empty.point_of_commitment is not None:
+                    report = report_empty
+
+        if json_mode:
+            out_dict = {
+                "session_id": session_id,
+                "category": report.original_diagnosis.category.value,
+                "root_cause_step_index": report.original_diagnosis.root_cause_step_index,
+                "summary": report.original_diagnosis.summary,
+                "details": report.original_diagnosis.details,
+                "recommendations": report.original_diagnosis.recommendations,
+                "point_of_commitment": {
+                    "step_index": report.point_of_commitment.step_index,
+                    "step_type": report.point_of_commitment.step_type,
+                    "agent_name": report.point_of_commitment.agent_name,
+                    "tool_name": report.point_of_commitment.tool_name,
+                    "perturbation": str(report.point_of_commitment.perturbation),
+                    "description": report.point_of_commitment.description,
+                }
+                if report.point_of_commitment
+                else None,
+                "ablation_results": [
+                    {
+                        "step_index": r.step_index,
+                        "perturbation": str(r.perturbation),
+                        "outcome_changed": r.outcome_changed,
+                        "divergence_score": r.divergence_score,
+                        "counterfactual_category": r.counterfactual_diagnosis.category.value,
+                    }
+                    for r in report.ablation_results
+                ],
+            }
+            if live and "live_res" in locals():
+                out_dict["preflight"] = {
+                    "estimated_tokens": live_res.preflight.estimated_tokens,
+                    "estimated_cost_usd": live_res.preflight.estimated_cost_usd,
+                    "warning_message": live_res.preflight.warning_message,
+                }
+                out_dict["guardrail_triggered"] = live_res.guardrail_triggered
+            print(json.dumps(out_dict, indent=2))
+            return
+
+        # Rich terminal UI
+        category_styles = {
+            FailureCategory.AGENT: ("bold yellow on black", "AGENT REASONING"),
+            FailureCategory.TOOL: ("bold magenta on black", "TOOL EXECUTION"),
+            FailureCategory.PROTOCOL: ("bold red on white", "PROTOCOL VIOLATION"),
+            FailureCategory.NONE: ("bold green", "CLEAN / NONE"),
+        }
+        style, label = category_styles.get(
+            report.original_diagnosis.category, ("bold white", "UNKNOWN")
+        )
+
+        console.print()
+        console.print(
+            Panel(
+                f"[bold]Session ID:[/bold] {session_id}  |  "
+                f"[bold]Boundary:[/bold] [{style}] {label} [/{style}]\n"
+                f"[bold]Summary:[/bold] {report.original_diagnosis.summary}",
+                title=f"[bold cyan]Causal Failure Attribution (Session #{session_id})[/bold cyan]",
+                border_style="cyan",
+            )
+        )
+
+        if report.point_of_commitment:
+            poc = report.point_of_commitment
+            console.print()
+            console.print(
+                Panel(
+                    f"[bold red]POINT OF COMMITMENT (PoC) IDENTIFIED[/bold red]\n\n"
+                    f"• [bold]Earliest Causal Step:[/bold] Step #{poc.step_index}\n"
+                    f"• [bold]Step Type:[/bold] {poc.step_type}\n"
+                    f"• [bold]Tool:[/bold] [cyan]{poc.tool_name or 'N/A'}[/cyan]\n"
+                    f"• [bold]Agent:[/bold] {poc.agent_name or 'N/A'}\n"
+                    f"• [bold]Perturbation Applied:[/bold] {poc.perturbation}\n\n"
+                    f"[italic]{poc.description}[/italic]",
+                    title="[bold yellow]★ Point of Commitment[/bold yellow]",
+                    border_style="yellow",
+                )
+            )
+        else:
+            console.print()
+            console.print(
+                Panel(
+                    "[green]No Point of Commitment (PoC) found. Session executed cleanly without detected failure cascades.[/green]",
+                    title="[bold green]Clean Execution[/bold green]",
+                    border_style="green",
+                )
+            )
+
+        # Causal Timeline Table
+        if steps:
+            console.print()
+            console.print("[bold]Causal Step Timeline & Counterfactual Divergence:[/bold]")
+            timeline_table = Table(show_header=True)
+            timeline_table.add_column("Step", style="dim", width=6)
+            timeline_table.add_column("Type", width=12)
+            timeline_table.add_column("Agent / Tool", width=24)
+            timeline_table.add_column("Original Output", width=36)
+            timeline_table.add_column("Counterfactual Branch", width=36)
+
+            poc_idx = (
+                report.point_of_commitment.step_index
+                if report.point_of_commitment
+                else None
+            )
+
+            for step in steps:
+                sidx = step.get("step_index", 0)
+                stype = step.get("step_type", "thought")
+                tool_str = step.get("agent_name", "")
+                if stype == "tool_call":
+                    tool_name = FailureClassifier()._extract_tool_name(step.get("input"))
+                    tool_str += f" -> [cyan]{tool_name}[/cyan]"
+
+                orig_out = str(step.get("output", ""))[:32] + (
+                    "..." if len(str(step.get("output", ""))) > 32 else ""
+                )
+
+                is_poc = sidx == poc_idx
+                step_label = f"#{sidx} ★" if is_poc else f"#{sidx}"
+                row_style = "bold yellow" if is_poc else None
+
+                cf_branch = "-"
+                if is_poc:
+                    cf_branch = (
+                        f"[bold green]Perturbed ({poc.perturbation}) -> cascade broken[/bold green]"
+                    )
+                elif poc_idx is not None and sidx > poc_idx:
+                    cf_branch = "[dim italic]Prevented / Diverged[/dim italic]"
+
+                timeline_table.add_row(
+                    step_label,
+                    stype,
+                    tool_str,
+                    orig_out,
+                    cf_branch,
+                    style=row_style,
+                )
+
+            console.print(timeline_table)
+
+        # Recommendations
+        if report.original_diagnosis.recommendations:
+            console.print()
+            rec_text = "\n".join(
+                f"• {r}" for r in report.original_diagnosis.recommendations
+            )
+            console.print(
+                Panel(
+                    rec_text,
+                    title="[bold blue]Remediation Recommendations[/bold blue]",
+                    border_style="blue",
+                )
+            )
+
+    asyncio.run(_run())
+
+
 def main() -> None:
     app()
 
