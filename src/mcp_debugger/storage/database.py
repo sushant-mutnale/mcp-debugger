@@ -1,6 +1,7 @@
 """Asynchronous SQLite storage layer for the MCP Debugger."""
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -354,6 +355,32 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_errors_session_id ON errors(session_id);"
         )
 
+        # Table: steps – agent trajectory steps (thoughts, tool calls, llm calls, handoffs)
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS steps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                step_index INTEGER NOT NULL,
+                step_type TEXT CHECK(step_type IN ('llm_call', 'tool_call', 'thought', 'handoff')),
+                agent_name TEXT,
+                input TEXT,
+                output TEXT,
+                content_hash TEXT,
+                tokens_input INTEGER,
+                tokens_output INTEGER,
+                latency_ms REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_steps_session_step ON steps(session_id, step_index);"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_steps_content_hash ON steps(session_id, content_hash);"
+        )
+
         await conn.commit()
 
     async def create_session(
@@ -628,6 +655,105 @@ class Database:
                 await conn.commit()
         except Exception as e:
             logger.warning("Failed to update session protocol info: %s", e)
+
+    @staticmethod
+    def _compute_step_content_hash(
+        agent_name: str | None,
+        step_type: str,
+        input_data: str | None,
+    ) -> str:
+        """Compute SHA-256 content hash for step deduplication."""
+        payload = f"{agent_name or ''}:{step_type}:{input_data or ''}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    async def log_step(
+        self,
+        session_id: int,
+        step_index: int,
+        step_type: str,
+        agent_name: str | None = None,
+        input_data: str | None = None,
+        output_data: str | None = None,
+        tokens_input: int | None = None,
+        tokens_output: int | None = None,
+        latency_ms: float | None = None,
+        deduplicate: bool = True,
+    ) -> int:
+        """Store an agent trajectory step with content-hash deduplication."""
+        try:
+            content_hash = self._compute_step_content_hash(agent_name, step_type, input_data)
+            conn = await self._get_conn()
+
+            if deduplicate:
+                async with conn.execute(
+                    """
+                    SELECT id FROM steps
+                    WHERE session_id = ? AND content_hash = ?
+                    LIMIT 1
+                    """,
+                    (session_id, content_hash),
+                ) as cursor:
+                    existing = await cursor.fetchone()
+                    if existing:
+                        return existing[0]
+
+            async with conn.execute(
+                """
+                INSERT INTO steps (
+                    session_id, step_index, step_type, agent_name,
+                    input, output, content_hash, tokens_input, tokens_output, latency_ms
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    step_index,
+                    step_type,
+                    agent_name,
+                    input_data,
+                    output_data,
+                    content_hash,
+                    tokens_input,
+                    tokens_output,
+                    latency_ms,
+                ),
+            ) as cursor:
+                inserted_id = cursor.lastrowid
+            await conn.commit()
+            return inserted_id if inserted_id is not None else -1
+        except Exception as e:
+            logger.warning("Failed to log step: %s", e)
+            return -1
+
+    async def get_steps(
+        self,
+        session_id: int,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Retrieve trajectory steps for a session ordered by step_index."""
+        try:
+            conn = await self._get_conn()
+            query = "SELECT * FROM steps WHERE session_id = ? ORDER BY step_index ASC, id ASC"
+            params: list[Any] = [session_id]
+
+            if limit is not None:
+                query += " LIMIT ?"
+                params.append(limit)
+            elif offset is not None:
+                query += " LIMIT -1"
+
+            if offset is not None:
+                query += " OFFSET ?"
+                params.append(offset)
+
+            async with conn.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                columns = [col[0] for col in cursor.description]
+                return [dict(zip(columns, row, strict=False)) for row in rows]
+        except Exception as e:
+            logger.warning("Failed to get steps: %s", e)
+            return []
 
     async def log_raw_line(
         self,
