@@ -501,7 +501,9 @@ def inspect(
                 console.print(f"[red]Error fetching messages: {e}[/red]")
                 sys.exit(1)
 
-            if not messages:
+            steps = await db.get_steps(session_id)
+
+            if not messages and not steps:
                 if json_mode:
                     output_str = "[]"
                     if output:
@@ -555,7 +557,15 @@ def inspect(
                             "error": error_val,
                         }
                     )
-                output_str = json.dumps(json_messages, indent=2)
+                if steps:
+                    output_payload = {
+                        "session_id": session_id,
+                        "messages": json_messages,
+                        "trajectory_steps": steps,
+                    }
+                    output_str = json.dumps(output_payload, indent=2)
+                else:
+                    output_str = json.dumps(json_messages, indent=2)
                 if output:
                     with open(output, "w", encoding="utf-8") as f:
                         f.write(output_str + "\n")
@@ -563,6 +573,29 @@ def inspect(
                     print(output_str)
             else:
                 panels = []
+                if steps:
+                    step_table = Table(
+                        title="[bold cyan]Agent Trajectory Steps[/bold cyan]",
+                        show_header=True,
+                        header_style="bold magenta",
+                    )
+                    step_table.add_column("#", style="dim", width=4)
+                    step_table.add_column("Type", style="bold yellow")
+                    step_table.add_column("Agent", style="green")
+                    step_table.add_column("Input", style="white")
+                    step_table.add_column("Output", style="white")
+                    step_table.add_column("Latency (ms)", justify="right")
+                    for s in steps:
+                        step_table.add_row(
+                            str(s.get("step_index", "")),
+                            str(s.get("step_type", "")),
+                            str(s.get("agent_name", "") or "-"),
+                            str(s.get("input", "") or "")[:60],
+                            str(s.get("output", "") or "")[:60],
+                            str(s.get("latency_ms", "") or "-"),
+                        )
+                    panels.append(Panel(step_table, border_style="cyan", safe_box=True))
+
                 for msg in messages:
                     envelope = rebuild_jsonrpc(msg)
                     json_body = json.dumps(envelope, indent=2)
