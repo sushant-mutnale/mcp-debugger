@@ -24,17 +24,128 @@ except ImportError:  # pragma: no cover
     _OTLP_AVAILABLE = False
 
 
-def _get_tool_name(params_raw: str | None) -> str | None:
-    """Extract tool name from a serialised ``params`` JSON string."""
-    if not params_raw:
+def _parse_json_dict(val: Any) -> dict[str, Any] | None:
+    """Safely parse a dict or JSON-encoded dict."""
+    if val is None:
         return None
-    try:
-        params = json.loads(params_raw)
-        if isinstance(params, dict):
-            return params.get("name")
-    except (json.JSONDecodeError, ValueError):
-        pass
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            return None
     return None
+
+
+def _extract_target(method: str, params: Any) -> str | None:
+    """Extract semantic target from params (e.g. tool name, resource uri, prompt name)."""
+    p_dict = _parse_json_dict(params)
+    if not p_dict:
+        return None
+
+    if method == "tools/call":
+        name = p_dict.get("name")
+        return str(name) if name is not None else None
+    elif method in ("resources/read", "resources/subscribe", "resources/unsubscribe"):
+        uri = p_dict.get("uri")
+        return str(uri) if uri is not None else None
+    elif method in ("prompts/get",):
+        name = p_dict.get("name")
+        return str(name) if name is not None else None
+    return None
+
+
+def _get_tool_name(params_raw: Any) -> str | None:
+    """Extract tool name from a serialised ``params`` JSON string or dict."""
+    return _extract_target("tools/call", params_raw)
+
+
+def _extract_genai_attributes(
+    method: str,
+    params: Any = None,
+    result: Any = None,
+    session: dict[str, Any] | None = None,
+    message_id: Any = None,
+) -> dict[str, Any]:
+    """Extract OpenTelemetry GenAI semantic convention attributes."""
+    attrs: dict[str, Any] = {
+        "gen_ai.system": "mcp",
+    }
+
+    p_dict = _parse_json_dict(params) or {}
+    r_dict = _parse_json_dict(result) or {}
+
+    if method == "tools/call":
+        attrs["gen_ai.operation.name"] = "execute_tool"
+        tool_name = p_dict.get("name")
+        if tool_name is not None:
+            attrs["gen_ai.tool.name"] = str(tool_name)
+    elif method.startswith("prompts/"):
+        attrs["gen_ai.operation.name"] = "prompt"
+    else:
+        attrs["gen_ai.operation.name"] = method
+
+    if message_id is not None:
+        attrs["gen_ai.tool.call.id"] = str(message_id)
+
+    # Request model extraction
+    req_meta = p_dict.get("_meta") if isinstance(p_dict.get("_meta"), dict) else {}
+    req_model = (
+        req_meta.get("model")
+        or req_meta.get("request_model")
+        or req_meta.get("gen_ai.request.model")
+        or p_dict.get("model")
+    )
+    if not req_model and session:
+        client_info = _parse_json_dict(session.get("client_info")) or {}
+        req_model = client_info.get("model") or session.get("model")
+    if req_model:
+        attrs["gen_ai.request.model"] = str(req_model)
+
+    # Response model extraction
+    resp_meta = r_dict.get("_meta") if isinstance(r_dict.get("_meta"), dict) else {}
+    resp_model = (
+        resp_meta.get("model")
+        or resp_meta.get("response_model")
+        or resp_meta.get("gen_ai.response.model")
+        or r_dict.get("model")
+    )
+    if resp_model:
+        attrs["gen_ai.response.model"] = str(resp_model)
+
+    # Token usage extraction
+    usage = (
+        resp_meta.get("usage")
+        or r_dict.get("usage")
+        or req_meta.get("usage")
+        or p_dict.get("usage")
+    )
+    if isinstance(usage, dict):
+        input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens")
+        if input_tokens is not None:
+            try:
+                attrs["gen_ai.usage.input_tokens"] = int(input_tokens)
+            except (ValueError, TypeError):
+                pass
+
+        output_tokens = usage.get("output_tokens") or usage.get("completion_tokens")
+        if output_tokens is not None:
+            try:
+                attrs["gen_ai.usage.output_tokens"] = int(output_tokens)
+            except (ValueError, TypeError):
+                pass
+
+        total_tokens = usage.get("total_tokens")
+        if total_tokens is not None:
+            try:
+                attrs["gen_ai.usage.total_tokens"] = int(total_tokens)
+            except (ValueError, TypeError):
+                pass
+
+    return attrs
 
 
 class OTLPExporter:
@@ -91,13 +202,21 @@ class OTLPExporter:
         session_name = session.get("friendly_name") or f"session-{session_id}"
 
         # --- root session span ---
+        root_attrs: dict[str, Any] = {
+            "gen_ai.system": "mcp",
+            "mcp.session.id": str(session_id),
+            "mcp.server.command": str(session.get("server_command") or ""),
+            "mcp.session.status": str(session.get("status") or ""),
+        }
+        if session.get("protocol_version"):
+            root_attrs["mcp.protocol_version"] = str(session["protocol_version"])
+        server_info = _parse_json_dict(session.get("server_info"))
+        if server_info and "capabilities" in server_info:
+            root_attrs["mcp.capabilities"] = json.dumps(server_info["capabilities"], sort_keys=True)
+
         with tracer.start_as_current_span(
             name=f"mcp-session {session_name}",
-            attributes={
-                "mcp.session.id": str(session_id),
-                "mcp.server.command": str(session.get("server_command") or ""),
-                "mcp.session.status": str(session.get("status") or ""),
-            },
+            attributes=root_attrs,
         ):
             pairs = self._pair_messages(msgs)
             span_count = 0
@@ -154,7 +273,8 @@ class OTLPExporter:
         session: dict[str, Any],
     ) -> None:
         method = req.get("method") or "unknown"
-        span_name = f"mcp.{method}"
+        target = _extract_target(method, req.get("params"))
+        span_name = f"{method} {target}" if target else method
         latency_ms = resp.get("latency_ms") if resp else None
 
         # Build attributes
@@ -164,10 +284,18 @@ class OTLPExporter:
             "mcp.server.command": str(session.get("server_command") or ""),
         }
 
-        if method == "tools/call":
-            tool_name = _get_tool_name(req.get("params"))
-            if tool_name:
-                attrs["mcp.tool.name"] = tool_name
+        if method == "tools/call" and target:
+            attrs["mcp.tool.name"] = target
+
+        # GenAI semantic attributes
+        genai_attrs = _extract_genai_attributes(
+            method=method,
+            params=req.get("params"),
+            result=resp.get("result") if resp else None,
+            session=session,
+            message_id=req.get("message_id") or req.get("id"),
+        )
+        attrs.update(genai_attrs)
 
         has_error = False
         if resp:

@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from mcp_debugger.exporters.otlp_exporter import _extract_genai_attributes, _extract_target
+
 # ---------------------------------------------------------------------------
 # Optional OpenTelemetry imports – guarded so the module can be imported even
 # when the SDK is not installed.  The actual classes are only used inside
@@ -112,6 +114,7 @@ class OTLPReplayExporter:
         duration_s = (result.ended_at - result.started_at).total_seconds()
 
         root_attrs: dict[str, Any] = {
+            "gen_ai.system": "mcp",
             "replay.session_id": str(result.session_id),
             "replay.target_server_command": result.target_server_command,
             "replay.total_messages": total,
@@ -156,7 +159,9 @@ class OTLPReplayExporter:
     ) -> None:
         """Create a child span for a single replayed message."""
         method = msg.method or "unknown"
-        span_name = f"mcp.replay.{method}"
+        req_params = msg.request_sent.get("params") if msg.request_sent else None
+        target = _extract_target(method, req_params)
+        span_name = f"{method} {target}" if target else method
 
         attrs: dict[str, Any] = {
             "mcp.method": method,
@@ -167,19 +172,23 @@ class OTLPReplayExporter:
         }
 
         # Extract tool name for tools/call spans
-        if method == "tools/call" and msg.request_sent:
-            params = msg.request_sent.get("params")
-            if isinstance(params, dict):
-                tool_name = params.get("name")
-            elif isinstance(params, str):
-                try:
-                    tool_name = json.loads(params).get("name")
-                except (json.JSONDecodeError, ValueError):
-                    tool_name = None
-            else:
-                tool_name = None
-            if tool_name:
-                attrs["mcp.tool.name"] = str(tool_name)
+        if method == "tools/call" and target:
+            attrs["mcp.tool.name"] = str(target)
+
+        # GenAI semantic attributes
+        resp_payload = msg.replayed_response or msg.original_response
+        resp_result = (
+            resp_payload.get("result")
+            if isinstance(resp_payload, dict)
+            else None
+        )
+        genai_attrs = _extract_genai_attributes(
+            method=method,
+            params=req_params,
+            result=resp_result,
+            message_id=msg.original_message_id,
+        )
+        attrs.update(genai_attrs)
 
         # Truncated diff summary for quick scanning in trace UIs
         if msg.diff_text:
