@@ -140,3 +140,159 @@ def test_error_classifier_edge_cases() -> None:
     )
     assert res_unknown is not None
     assert res_unknown[0] == "unknown"
+
+
+def test_error_classifier_unsupported_protocol_version() -> None:
+    classifier = ErrorClassifier()
+
+    # Code -32003 with standard message
+    res = classifier.classify(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32003, "message": "Unsupported protocol version"},
+        }
+    )
+    assert res is not None
+    cat, msg, sug = res
+    assert cat == "protocol"
+    assert "Unsupported protocol version" in msg
+    assert sug is not None
+    assert "server/discover" in sug
+    assert "_meta.protocolVersion" in sug
+    assert "upgrade" in sug.lower() or "downgrade" in sug.lower()
+
+    # Code -32003 as string
+    res_str = classifier.classify(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "error": {
+                "code": "-32003",
+                "message": "UnsupportedProtocolVersionError: version 2024-11-05 not supported",
+            },
+        }
+    )
+    assert res_str is not None
+    assert res_str[0] == "protocol"
+    assert "server/discover" in res_str[2]
+
+    # HTTP 400 Bad Request style or message containing UnsupportedProtocolVersionError
+    res_http = classifier.classify(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "error": {
+                "code": 400,
+                "message": "UnsupportedProtocolVersionError: protocol version rejected",
+            },
+        }
+    )
+    assert res_http is not None
+    assert res_http[0] == "protocol"
+    assert "server/discover" in res_http[2]
+
+
+def test_error_classifier_missing_required_client_capability() -> None:
+    classifier = ErrorClassifier()
+
+    # Code -32004 with message containing capability key
+    res1 = classifier.classify(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32004,
+                "message": "Missing required client capability: roots",
+            },
+        }
+    )
+    assert res1 is not None
+    cat1, msg1, sug1 = res1
+    assert cat1 == "protocol"
+    assert "roots" in msg1
+    assert sug1 is not None
+    assert "roots" in sug1
+    assert "_meta.clientCapabilities" in sug1 or "clientCapabilities" in sug1
+
+    # Code -32004 with data dictionary containing capability
+    res2 = classifier.classify(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "error": {
+                "code": -32004,
+                "message": "MissingRequiredClientCapabilityError",
+                "data": {"capability": "sampling"},
+            },
+        }
+    )
+    assert res2 is not None
+    cat2, msg2, sug2 = res2
+    assert cat2 == "protocol"
+    assert sug2 is not None
+    assert "sampling" in sug2
+
+    # Code -32000 (ordinarily tool_execution) but message indicates MissingRequiredClientCapabilityError
+    res3 = classifier.classify(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "error": {
+                "code": -32000,
+                "message": "Missing required client capability 'prompts'",
+            },
+        }
+    )
+    assert res3 is not None
+    cat3, msg3, sug3 = res3
+    assert cat3 == "protocol"
+    assert sug3 is not None
+    assert "prompts" in sug3
+
+    # Standard tool execution error -32000 without capability message remains tool_execution
+    res_std = classifier.classify(
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "error": {"code": -32000, "message": "Generic tool failure occurred"},
+        }
+    )
+    assert res_std is not None
+    assert res_std[0] == "tool_execution"
+
+
+def test_error_classifier_stateless_edge_cases() -> None:
+    classifier = ErrorClassifier()
+
+    # Code -32004 without specific capability named
+    res = classifier.classify(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32004,
+                "message": "Missing required client capability",
+            },
+        }
+    )
+    assert res is not None
+    assert res[0] == "protocol"
+    assert res[2] is not None
+    assert "clientCapabilities" in res[2]
+
+    # Code -32004 with string in data
+    res_data_str = classifier.classify(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "error": {
+                "code": -32004,
+                "message": "Missing client capability",
+                "data": "roots",
+            },
+        }
+    )
+    assert res_data_str is not None
+    assert res_data_str[0] == "protocol"
+    assert "roots" in res_data_str[2]
