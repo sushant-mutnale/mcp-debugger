@@ -381,6 +381,25 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_steps_content_hash ON steps(session_id, content_hash);"
         )
 
+        # Table: attributions – causal failure attribution and counterfactual replay records
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS attributions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                poc_step_index INTEGER,
+                failure_category TEXT CHECK(failure_category IN ('agent', 'tool', 'protocol', 'none')),
+                root_cause_explanation TEXT,
+                mode TEXT CHECK(mode IN ('vcr', 'live')),
+                details TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attributions_session ON attributions(session_id);"
+        )
+
         await conn.commit()
 
     async def create_session(
@@ -753,6 +772,109 @@ class Database:
                 return [dict(zip(columns, row, strict=False)) for row in rows]
         except Exception as e:
             logger.warning("Failed to get steps: %s", e)
+            return []
+
+    async def log_attribution(
+        self,
+        session_id: int,
+        poc_step_index: int | None,
+        failure_category: str,
+        root_cause_explanation: str,
+        mode: str = "vcr",
+        details: str | dict[str, Any] | None = None,
+    ) -> int:
+        """Store a causal failure attribution record in the attributions table."""
+        try:
+            conn = await self._get_conn()
+            if isinstance(details, dict):
+                details_str = json.dumps(details)
+            else:
+                details_str = details
+
+            async with conn.execute(
+                """
+                INSERT INTO attributions (
+                    session_id, poc_step_index, failure_category,
+                    root_cause_explanation, mode, details
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    poc_step_index,
+                    failure_category,
+                    root_cause_explanation,
+                    mode,
+                    details_str,
+                ),
+            ) as cursor:
+                inserted_id = cursor.lastrowid
+            await conn.commit()
+            return inserted_id if inserted_id is not None else -1
+        except Exception as e:
+            logger.warning("Failed to log attribution: %s", e)
+            return -1
+
+    async def get_attribution(
+        self,
+        session_id: int,
+    ) -> dict[str, Any] | None:
+        """Retrieve the latest causal attribution record for a session."""
+        try:
+            conn = await self._get_conn()
+            async with conn.execute(
+                """
+                SELECT * FROM attributions
+                WHERE session_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return None
+                columns = [col[0] for col in cursor.description]
+                res = dict(zip(columns, row, strict=False))
+                if res.get("details"):
+                    try:
+                        res["details"] = json.loads(res["details"])
+                    except Exception:
+                        pass
+                return res
+        except Exception as e:
+            logger.warning("Failed to get attribution: %s", e)
+            return None
+
+    async def get_attributions(
+        self,
+        session_id: int,
+    ) -> list[dict[str, Any]]:
+        """Retrieve all causal attribution records for a session."""
+        try:
+            conn = await self._get_conn()
+            async with conn.execute(
+                """
+                SELECT * FROM attributions
+                WHERE session_id = ?
+                ORDER BY id ASC
+                """,
+                (session_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                columns = [col[0] for col in cursor.description]
+                results = []
+                for row in rows:
+                    res = dict(zip(columns, row, strict=False))
+                    if res.get("details"):
+                        try:
+                            res["details"] = json.loads(res["details"])
+                        except Exception:
+                            pass
+                    results.append(res)
+                return results
+        except Exception as e:
+            logger.warning("Failed to get attributions: %s", e)
             return []
 
     async def log_raw_line(

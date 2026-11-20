@@ -2419,6 +2419,42 @@ def attribute(
                 if report_empty.point_of_commitment is not None:
                     report = report_empty
 
+        # Persist attribution analysis to database
+        try:
+            await db.connect()
+            await db.log_attribution(
+                session_id=session_id,
+                poc_step_index=(
+                    report.point_of_commitment.step_index
+                    if report.point_of_commitment
+                    else None
+                ),
+                failure_category=report.original_diagnosis.category.value,
+                root_cause_explanation=(
+                    report.point_of_commitment.description
+                    if report.point_of_commitment
+                    else report.original_diagnosis.summary
+                ),
+                mode="live" if live else "vcr",
+                details={
+                    "ablation_results": [
+                        {
+                            "step_index": r.step_index,
+                            "perturbation": str(r.perturbation),
+                            "outcome_changed": r.outcome_changed,
+                            "divergence_score": r.divergence_score,
+                            "counterfactual_category": r.counterfactual_diagnosis.category.value,
+                        }
+                        for r in report.ablation_results
+                    ],
+                    "recommendations": report.original_diagnosis.recommendations,
+                },
+            )
+        except Exception:
+            pass
+        finally:
+            await db.close()
+
         if json_mode:
             out_dict = {
                 "session_id": session_id,
