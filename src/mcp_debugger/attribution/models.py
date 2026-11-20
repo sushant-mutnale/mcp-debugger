@@ -56,3 +56,26 @@ class AttributionReport:
     original_diagnosis: FailureDiagnosis
     point_of_commitment: PointOfCommitment | None = None
     ablation_results: list[AblationResult] = field(default_factory=list)
+
+
+@dataclass
+class PreflightEstimate:
+    candidate_step_index: int
+    estimated_tokens: int
+    estimated_cost_usd: float
+    max_downstream_steps: int
+    warning_message: str
+
+
+@dataclass
+class LiveCounterfactualResult:
+    candidate_step_index: int
+    perturbation: PerturbationType | str
+    preflight: PreflightEstimate
+    original_diagnosis: FailureDiagnosis
+    counterfactual_diagnosis: FailureDiagnosis
+    counterfactual_steps: list[dict[str, Any]]
+    tokens_used: int
+    outcome_changed: bool
+    guardrail_triggered: str | None = None
+
