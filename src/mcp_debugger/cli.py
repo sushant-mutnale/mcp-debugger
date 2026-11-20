@@ -2611,6 +2611,158 @@ def attribute(
     asyncio.run(_run())
 
 
+@app.command(name="agents")
+def agents(
+    session_id: int = typer.Argument(..., help="The ID of the session to inspect"),
+    tree: bool = typer.Option(
+        False, "--tree", help="Visual tree of agent hierarchy (default)"
+    ),
+    handoffs: bool = typer.Option(
+        False, "--handoffs", help="Filter view to inter-agent handoff transitions"
+    ),
+    json_mode: bool = typer.Option(
+        False, "--json", help="Output structured hierarchy and delegation events as JSON"
+    ),
+) -> None:
+    """Inspect multi-agent hierarchy, delegation trees, and inter-agent handoffs for a session."""
+    from rich.table import Table
+    from rich.tree import Tree
+
+    async def _run() -> None:
+        db = Database()
+        try:
+            try:
+                await db.connect()
+                session = await db.get_session(session_id)
+            except (sqlite3.DatabaseError, aiosqlite.DatabaseError):
+                console.print(
+                    f"[red]Error: Database file at {db.db_path} appears to be corrupted or invalid.[/red]"
+                )
+                sys.exit(1)
+            except Exception as e:
+                console.print(f"[red]Error connecting to database: {e}[/red]")
+                sys.exit(1)
+
+            if not session:
+                console.print(f"Session {session_id} not found")
+                sys.exit(1)
+
+            flat_agents = await db.get_agents(session_id)
+            hierarchy = await db.get_agent_hierarchy(session_id)
+            steps = await db.get_steps(session_id)
+        finally:
+            await db.close()
+
+        # Parse handoff steps
+        handoff_events: list[dict[str, Any]] = []
+        for s in steps:
+            if s.get("step_type") == "handoff":
+                raw_in = s.get("input") or s.get("input_data")
+                in_payload: dict[str, Any] = {}
+                if isinstance(raw_in, str):
+                    try:
+                        in_payload = json.loads(raw_in)
+                    except Exception:
+                        in_payload = {}
+                elif isinstance(raw_in, dict):
+                    in_payload = raw_in
+
+                from_agent = in_payload.get("from_agent") or s.get("agent_name") or "unknown"
+                to_agent = in_payload.get("to_agent") or "unknown"
+                task = in_payload.get("task") or ""
+
+                handoff_events.append({
+                    "step_index": s.get("step_index", 0),
+                    "from_agent": from_agent,
+                    "to_agent": to_agent,
+                    "task": task,
+                    "latency_ms": s.get("latency_ms"),
+                    "created_at": s.get("created_at"),
+                })
+
+        if json_mode:
+            payload = {
+                "session_id": session_id,
+                "agents": flat_agents,
+                "hierarchy": hierarchy,
+                "handoffs": handoff_events,
+            }
+            console.print(json.dumps(payload, indent=2, default=str))
+            return
+
+        if not flat_agents and not handoff_events:
+            console.print(f"[dim]No agents or handoffs found for session {session_id}.[/dim]")
+            return
+
+        show_tree = tree or not handoffs
+        show_handoffs = handoffs
+
+        # Render Tree
+        if show_tree:
+            if not flat_agents:
+                console.print(f"[dim]No agents registered for session {session_id}.[/dim]")
+            else:
+                tree_view = Tree(
+                    f"[bold cyan]Agent Hierarchy (Session {session_id})[/bold cyan]"
+                )
+
+                def add_agent_to_tree(parent_node: Any, agent_node: dict[str, Any]) -> None:
+                    role_str = (
+                        f" [dim]({agent_node.get('role')})[/dim]"
+                        if agent_node.get("role")
+                        else ""
+                    )
+                    fw_str = (
+                        f" [magenta]\\[{agent_node.get('framework')}][/magenta]"
+                        if agent_node.get("framework")
+                        else ""
+                    )
+                    label = (
+                        f"[bold green]{agent_node['name']}[/bold green]"
+                        f"{role_str}{fw_str} [dim]id:{agent_node['id']}[/dim]"
+                    )
+                    sub = parent_node.add(label)
+                    for child in agent_node.get("children", []):
+                        add_agent_to_tree(sub, child)
+
+                for root in hierarchy:
+                    add_agent_to_tree(tree_view, root)
+
+                console.print(tree_view)
+
+        # Render Handoffs Table
+        if show_handoffs:
+            if not handoff_events:
+                console.print(
+                    f"[dim]No handoff transitions recorded for session {session_id}.[/dim]"
+                )
+            else:
+                table = Table(title=f"Inter-Agent Handoffs (Session {session_id})")
+                table.add_column("Step", justify="right", style="cyan")
+                table.add_column("From", style="green")
+                table.add_column("To", style="yellow")
+                table.add_column("Task / Context", style="white")
+                table.add_column("Latency", justify="right", style="magenta")
+
+                for h in handoff_events:
+                    lat_str = (
+                        f"{h['latency_ms']:.1f}ms"
+                        if h.get("latency_ms") is not None
+                        else "-"
+                    )
+                    table.add_row(
+                        f"#{h['step_index']}",
+                        h["from_agent"],
+                        h["to_agent"],
+                        h["task"] or "[dim]N/A[/dim]",
+                        lat_str,
+                    )
+
+                console.print(table)
+
+    asyncio.run(_run())
+
+
 def main() -> None:
     app()
 
