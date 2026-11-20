@@ -50,6 +50,7 @@ def set_active_session(session_id: int | None, backend: Any = None) -> None:
     _tracer_backend.set(backend)
     if session_id is None:
         _current_step_counter.set(0)
+        _current_agent.set(None)
 
 
 def next_step_index() -> int:
