@@ -355,6 +355,28 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_errors_session_id ON errors(session_id);"
         )
 
+        # Table: agents – relational multi-agent hierarchy and roles
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                parent_agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+                name TEXT NOT NULL,
+                role TEXT,
+                framework TEXT,
+                metadata TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agents_session ON agents(session_id);"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id);"
+        )
+
         # Table: steps – agent trajectory steps (thoughts, tool calls, llm calls, handoffs)
         await conn.execute(
             """
@@ -364,6 +386,7 @@ class Database:
                 step_index INTEGER NOT NULL,
                 step_type TEXT CHECK(step_type IN ('llm_call', 'tool_call', 'thought', 'handoff')),
                 agent_name TEXT,
+                agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
                 input TEXT,
                 output TEXT,
                 content_hash TEXT,
@@ -379,6 +402,22 @@ class Database:
         )
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_steps_content_hash ON steps(session_id, content_hash);"
+        )
+
+        # Ensure agent_id column exists on steps table in case table was created previously
+        try:
+            async with conn.execute("PRAGMA table_info(steps)") as cursor:
+                rows = await cursor.fetchall()
+                columns = [col[1] for col in rows]
+                if columns and "agent_id" not in columns:
+                    await conn.execute(
+                        "ALTER TABLE steps ADD COLUMN agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL;"
+                    )
+        except Exception:
+            pass
+
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_steps_agent_id ON steps(session_id, agent_id);"
         )
 
         # Table: attributions – causal failure attribution and counterfactual replay records
@@ -697,6 +736,7 @@ class Database:
         tokens_output: int | None = None,
         latency_ms: float | None = None,
         deduplicate: bool = True,
+        agent_id: int | None = None,
     ) -> int:
         """Store an agent trajectory step with content-hash deduplication."""
         try:
@@ -719,16 +759,17 @@ class Database:
             async with conn.execute(
                 """
                 INSERT INTO steps (
-                    session_id, step_index, step_type, agent_name,
+                    session_id, step_index, step_type, agent_name, agent_id,
                     input, output, content_hash, tokens_input, tokens_output, latency_ms
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     step_index,
                     step_type,
                     agent_name,
+                    agent_id,
                     input_data,
                     output_data,
                     content_hash,
@@ -773,6 +814,102 @@ class Database:
         except Exception as e:
             logger.warning("Failed to get steps: %s", e)
             return []
+
+    async def create_agent(
+        self,
+        session_id: int,
+        name: str,
+        role: str | None = None,
+        parent_agent_id: int | None = None,
+        framework: str | None = None,
+        metadata: dict[str, Any] | str | None = None,
+    ) -> int:
+        """Create a new agent record in the agents table."""
+        try:
+            conn = await self._get_conn()
+            if isinstance(metadata, dict):
+                meta_str = json.dumps(metadata)
+            else:
+                meta_str = metadata
+
+            async with conn.execute(
+                """
+                INSERT INTO agents (session_id, parent_agent_id, name, role, framework, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (session_id, parent_agent_id, name, role, framework, meta_str),
+            ) as cursor:
+                inserted_id = cursor.lastrowid
+            await conn.commit()
+            return inserted_id if inserted_id is not None else -1
+        except Exception as e:
+            logger.warning("Failed to create agent: %s", e)
+            return -1
+
+    async def get_agent(self, agent_id: int) -> dict[str, Any] | None:
+        """Retrieve an agent record by ID with deserialized metadata."""
+        try:
+            conn = await self._get_conn()
+            async with conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return None
+                columns = [col[0] for col in cursor.description]
+                res = dict(zip(columns, row, strict=False))
+                if res.get("metadata"):
+                    try:
+                        res["metadata"] = json.loads(res["metadata"])
+                    except Exception:
+                        pass
+                return res
+        except Exception as e:
+            logger.warning("Failed to get agent: %s", e)
+            return None
+
+    async def get_agents(self, session_id: int) -> list[dict[str, Any]]:
+        """Retrieve all agents for a session ordered by creation ID."""
+        try:
+            conn = await self._get_conn()
+            async with conn.execute(
+                "SELECT * FROM agents WHERE session_id = ? ORDER BY id ASC",
+                (session_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                columns = [col[0] for col in cursor.description]
+                results = []
+                for row in rows:
+                    res = dict(zip(columns, row, strict=False))
+                    if res.get("metadata"):
+                        try:
+                            res["metadata"] = json.loads(res["metadata"])
+                        except Exception:
+                            pass
+                    results.append(res)
+                return results
+        except Exception as e:
+            logger.warning("Failed to get agents: %s", e)
+            return []
+
+    async def get_agent_hierarchy(self, session_id: int) -> list[dict[str, Any]]:
+        """Retrieve the multi-agent hierarchy tree with nested children."""
+        flat_agents = await self.get_agents(session_id)
+        if not flat_agents:
+            return []
+
+        agent_map: dict[int, dict[str, Any]] = {}
+        for a in flat_agents:
+            a["children"] = []
+            agent_map[a["id"]] = a
+
+        roots: list[dict[str, Any]] = []
+        for a in flat_agents:
+            parent_id = a.get("parent_agent_id")
+            if parent_id and parent_id in agent_map:
+                agent_map[parent_id]["children"].append(a)
+            else:
+                roots.append(a)
+
+        return roots
 
     async def log_attribution(
         self,
