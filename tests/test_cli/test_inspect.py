@@ -436,3 +436,37 @@ def test_inspect_shows_classified_errors(mock_db_path: str, runner: CliRunner) -
     assert result.exit_code == 0
     assert "PROTOCOL ERROR" in result.stdout
     assert "💡 Suggestion: Check spelling" in result.stdout
+
+
+def test_inspect_displays_discovery_info(mock_db_path: str, runner: CliRunner) -> None:
+    """Verify that inspect command renders server discovery information when available."""
+
+    async def populate() -> None:
+        db = Database(db_path=mock_db_path)
+        await db.connect()
+        session_id = await db.create_session("stateless-server")
+        server_info = {
+            "name": "ai-discovered-server",
+            "version": "2.5.0",
+            "instructions": "Stateless server instructions for agent reasoning.",
+            "supportedVersions": ["2026-07-28"],
+        }
+        await db.update_session_protocol_info(
+            session_id,
+            protocol_version="2026-07-28",
+            server_info=server_info,
+        )
+        await db.log_message(
+            session_id,
+            "client_to_server",
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+        )
+        await db.close()
+
+    asyncio.run(populate())
+
+    result = runner.invoke(app, ["inspect", "1"])
+    assert result.exit_code == 0
+    assert "Discovery Instructions" in result.stdout
+    assert "Stateless server instructions for agent reasoning." in result.stdout
+

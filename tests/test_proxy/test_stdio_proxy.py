@@ -771,3 +771,111 @@ async def test_proxy_stdin_exception_and_missing_process(temp_db: Database) -> N
     # Loops and monitors should return immediately
     await proxy2._server_to_client_loop()
     await proxy2._monitor_subprocess()
+
+
+@pytest.mark.asyncio
+async def test_proxy_captures_protocol_version_and_client_info_stateless(temp_db: Database) -> None:
+    """Verify that proxy captures stateless _meta protocol version and client info into session."""
+    session_id = await temp_db.create_session("mock-server")
+    proxy = StdioProxy(server_command="mock-server", database=temp_db, session_id=session_id)
+
+    stateless_msg = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {"name": "test-client", "version": "2.0"},
+            }
+        },
+    }
+    import json
+    await proxy._handle_message(json.dumps(stateless_msg), "client_to_server")
+
+    session = await temp_db.get_session(session_id)
+    assert session is not None
+    assert session["protocol_version"] == "2026-07-28"
+    assert "test-client" in session["client_info"]
+
+
+@pytest.mark.asyncio
+async def test_proxy_captures_protocol_version_and_server_info_stateful(temp_db: Database) -> None:
+    """Verify that proxy captures stateful initialize protocol version and server info into session."""
+    session_id = await temp_db.create_session("mock-server")
+    proxy = StdioProxy(server_command="mock-server", database=temp_db, session_id=session_id)
+    import json
+
+    init_req = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "clientInfo": {"name": "legacy-client", "version": "1.0"},
+        },
+    }
+    await proxy._handle_message(json.dumps(init_req), "client_to_server")
+
+    init_res = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "protocolVersion": "2025-03-26",
+            "serverInfo": {"name": "legacy-server", "version": "1.2"},
+        },
+    }
+    await proxy._handle_message(json.dumps(init_res), "server_to_client")
+
+    session = await temp_db.get_session(session_id)
+    assert session is not None
+    assert session["protocol_version"] == "2025-03-26"
+    assert "legacy-client" in session["client_info"]
+    assert "legacy-server" in session["server_info"]
+
+
+@pytest.mark.asyncio
+async def test_proxy_intercepts_server_discover(temp_db: Database) -> None:
+    """Verify that proxy intercepts server/discover response and persists full discovery info."""
+    session_id = await temp_db.create_session("mock-server")
+    proxy = StdioProxy(server_command="mock-server", database=temp_db, session_id=session_id)
+    import json
+
+    # 1. Client invokes server/discover
+    discover_req = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": {
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {"name": "discover-client", "version": "1.0"},
+            }
+        },
+    }
+    await proxy._handle_message(json.dumps(discover_req), "client_to_server")
+
+    # 2. Server replies with discover payload
+    discover_res = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "supportedVersions": ["2026-07-28", "2025-03-26"],
+            "capabilities": {"tools": {}, "resources": {}},
+            "serverInfo": {"name": "discovered-server", "version": "3.1.0"},
+            "instructions": "Welcome to the stateless server.",
+        },
+    }
+    await proxy._handle_message(json.dumps(discover_res), "server_to_client")
+
+    session = await temp_db.get_session(session_id)
+    assert session is not None
+    assert session["protocol_version"] == "2026-07-28"
+    assert "discover-client" in session["client_info"]
+
+    server_info = json.loads(session["server_info"])
+    assert server_info["name"] == "discovered-server"
+    assert server_info["instructions"] == "Welcome to the stateless server."
+    assert "2026-07-28" in server_info["supportedVersions"]
+
+

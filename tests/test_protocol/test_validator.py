@@ -1,3 +1,4 @@
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -416,3 +417,252 @@ async def test_validator_session_handshake_errors() -> None:
     assert any(
         not r.passed and "before completing initialized handshake" in r.message for r in resD
     )
+
+
+def test_detect_dialect_stateful() -> None:
+    """Verify that a session starting with initialize is detected as 2025-03-26 stateful dialect."""
+    validator = ProtocolValidator()
+    messages = [
+        {
+            "direction": "client_to_server",
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-03-26"},
+        }
+    ]
+    dialect = validator.detect_dialect(messages)
+    assert dialect == "2025-03-26"
+
+
+def test_detect_dialect_stateless() -> None:
+    """Verify that a session with _meta protocolVersion or server/discover is detected as 2026-07-28."""
+    validator = ProtocolValidator()
+    # Case 1: _meta with SEP-2575 URI
+    messages1 = [
+        {
+            "direction": "client_to_server",
+            "method": "tools/list",
+            "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}},
+        }
+    ]
+    assert validator.detect_dialect(messages1) == "2026-07-28"
+
+    # Case 2: server/discover RPC
+    messages2 = [{"direction": "client_to_server", "method": "server/discover"}]
+    assert validator.detect_dialect(messages2) == "2026-07-28"
+
+
+@pytest.mark.asyncio
+async def test_validate_session_stateless_valid() -> None:
+    """Verify that a stateless session without initialize passes without handshake errors."""
+    validator = ProtocolValidator()
+    db = AsyncMock(spec=Database)
+    db.get_session.return_value = {"id": 1, "protocol_version": None}
+    db.get_messages.return_value = [
+        {
+            "message_id": "1",
+            "direction": "client_to_server",
+            "message_type": "request",
+            "method": "tools/list",
+            "params": json.dumps(
+                {
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                        "io.modelcontextprotocol/clientInfo": {"name": "agent-x", "version": "0.1"},
+                    }
+                }
+            ),
+        },
+        {
+            "message_id": "1",
+            "direction": "server_to_client",
+            "message_type": "response",
+            "method": "tools/list",
+            "result": json.dumps({"tools": []}),
+        },
+    ]
+
+    results = await validator.validate_session(1, db)
+    # Should NOT have initialize_first or handshake_order failures
+    failed_rules = [r.rule_name for r in results if not r.passed]
+    assert "initialize_first" not in failed_rules
+    assert "handshake_order" not in failed_rules
+
+
+@pytest.mark.asyncio
+async def test_validate_session_stateless_missing_meta() -> None:
+    """Verify that in a stateless session, requests missing _meta declaration fail validation."""
+    validator = ProtocolValidator()
+    db = AsyncMock(spec=Database)
+    db.get_session.return_value = {"id": 1, "protocol_version": "2026-07-28"}
+    db.get_messages.return_value = [
+        {
+            "message_id": "1",
+            "direction": "client_to_server",
+            "message_type": "request",
+            "method": "tools/list",
+            "params": "{}",
+        }
+    ]
+
+    results = await validator.validate_session(1, db)
+    assert any(not r.passed and r.rule_name == "stateless_meta_declaration" for r in results)
+
+
+def test_validator_server_discover_valid_response() -> None:
+    """Verify that validator passes a compliant server/discover response."""
+    validator = ProtocolValidator()
+    valid_discover_resp = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "supportedVersions": ["2026-07-28", "2025-03-26"],
+            "capabilities": {"tools": {}, "prompts": {}},
+            "serverInfo": {"name": "test-discover-server", "version": "1.0.0"},
+            "instructions": "Use tools wisely.",
+        },
+    }
+    results = validator.validate_message(valid_discover_resp, "server_to_client")
+    assert any(r.passed and r.rule_name == "server_discover_schema" for r in results)
+
+
+def test_validator_server_discover_invalid_response() -> None:
+    """Verify that validator rejects non-compliant server/discover response missing required fields."""
+    validator = ProtocolValidator()
+    # Missing serverInfo and invalid supportedVersions type
+    invalid_discover_resp = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "supportedVersions": "not-a-list",
+            "capabilities": "not-a-dict",
+        },
+    }
+    results = validator.validate_message(invalid_discover_resp, "server_to_client")
+    failed = [r for r in results if not r.passed and r.rule_name == "server_discover_schema"]
+    assert len(failed) > 0
+    assert failed[0].severity == "critical"
+
+
+def test_validator_subscriptions_listen_valid_request() -> None:
+    """Verify that subscriptions/listen request with a list of topics passes validation."""
+    validator = ProtocolValidator()
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "subscriptions/listen",
+        "params": {
+            "subscriptions": ["toolsListChanged", "promptsListChanged"],
+            "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"},
+        },
+    }
+    results = validator.validate_message(msg, "client_to_server")
+    assert any(r.passed and r.rule_name == "subscriptions_listen_schema" for r in results)
+
+
+@pytest.mark.asyncio
+async def test_validator_unsolicited_notification_warning() -> None:
+    """Verify that server notification of an unrequested topic triggers a warning."""
+    validator = ProtocolValidator()
+    db = AsyncMock(spec=Database)
+    db.get_session.return_value = {"id": 1, "protocol_version": "2026-07-28"}
+    db.get_messages.return_value = [
+        # Client subscribes only to toolsListChanged
+        {
+            "message_id": "1",
+            "direction": "client_to_server",
+            "message_type": "request",
+            "method": "subscriptions/listen",
+            "params": json.dumps(
+                {
+                    "subscriptions": ["toolsListChanged"],
+                    "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"},
+                }
+            ),
+        },
+        # Server sends an unrequested prompts notification
+        {
+            "message_id": None,
+            "direction": "server_to_client",
+            "message_type": "notification",
+            "method": "notifications/prompts/list-changed",
+            "params": "{}",
+        },
+    ]
+
+    results = await validator.validate_session(1, db)
+    warnings = [r for r in results if not r.passed and r.rule_name == "unsolicited_notification"]
+    assert len(warnings) == 1
+    assert "notifications/prompts/list-changed" in warnings[0].message
+
+
+@pytest.mark.asyncio
+async def test_validator_solicited_notification_pass() -> None:
+    """Verify that subscribed notification topics do not trigger unsolicited warnings."""
+    validator = ProtocolValidator()
+    db = AsyncMock(spec=Database)
+    db.get_session.return_value = {"id": 1, "protocol_version": "2026-07-28"}
+    db.get_messages.return_value = [
+        # Client subscribes to toolsListChanged
+        {
+            "message_id": "1",
+            "direction": "client_to_server",
+            "message_type": "request",
+            "method": "subscriptions/listen",
+            "params": json.dumps(
+                {
+                    "subscriptions": ["toolsListChanged"],
+                    "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"},
+                }
+            ),
+        },
+        # Server sends subscribed tools notification
+        {
+            "message_id": None,
+            "direction": "server_to_client",
+            "message_type": "notification",
+            "method": "notifications/tools/list-changed",
+            "params": "{}",
+        },
+    ]
+
+    results = await validator.validate_session(1, db)
+    warnings = [r for r in results if not r.passed and r.rule_name == "unsolicited_notification"]
+    assert len(warnings) == 0
+
+
+def test_validator_unsupported_protocol_version_error() -> None:
+    """Verify that validator flags UnsupportedProtocolVersionError (-32003) as critical failure."""
+    validator = ProtocolValidator()
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+            "code": -32003,
+            "message": "Unsupported protocol version",
+        },
+    }
+    results = validator.validate_message(msg, "server_to_client")
+    crit = [r for r in results if not r.passed and r.severity == "critical"]
+    assert len(crit) == 1
+    assert crit[0].rule_name == "stateless_protocol_version"
+    assert "server/discover" in crit[0].suggestion
+    assert "_meta.protocolVersion" in crit[0].suggestion
+
+
+def test_validator_missing_client_capability_error() -> None:
+    """Verify that validator flags MissingRequiredClientCapabilityError (-32004) with missing capability."""
+    validator = ProtocolValidator()
+    msg = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+            "code": -32004,
+            "message": "Missing required client capability: roots",
+        },
+    }
+    results = validator.validate_message(msg, "server_to_client")
+    crit = [r for r in results if not r.passed and r.severity == "critical"]
+    assert len(crit) == 1
+    assert crit[0].rule_name == "stateless_client_capability"
+    assert "roots" in crit[0].suggestion
+    assert "_meta.clientCapabilities" in crit[0].suggestion

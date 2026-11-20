@@ -17,13 +17,18 @@ class ValidationResult(BaseModel):
     severity: str = Field(..., description="Severity level: 'critical', 'warning', or 'info'")
     message: str = Field(..., description="Human-readable explanation of the validation result")
     suggestion: str | None = Field(default=None, description="Optional remediation advice")
-    context: dict[str, Any] | None = Field(
-        default=None, description="Contextual message payload"
-    )
+    context: dict[str, Any] | None = Field(default=None, description="Contextual message payload")
 
 
 class ProtocolValidator:
     """Validator engine for ensuring MCP specification compliance."""
+
+    DIALECT_STATEFUL: str = "2025-03-26"
+    DIALECT_STATELESS: str = "2026-07-28"
+
+    META_PROTOCOL_VERSION_KEY: str = "io.modelcontextprotocol/protocolVersion"
+    META_CLIENT_INFO_KEY: str = "io.modelcontextprotocol/clientInfo"
+    META_CLIENT_CAPABILITIES_KEY: str = "io.modelcontextprotocol/clientCapabilities"
 
     STANDARD_METHODS: set[str] = {
         # Client -> Server requests
@@ -36,6 +41,9 @@ class ProtocolValidator:
         "prompts/list",
         "prompts/get",
         "logging/setLevel",
+        # Stateless 2026-07-28 RPCs
+        "server/discover",
+        "subscriptions/listen",
         # Client -> Server notifications
         "notifications/initialized",
         "notifications/cancelled",
@@ -73,8 +81,72 @@ class ProtocolValidator:
         "logging/setLevel": "logging",
     }
 
+    NOTIFICATION_TOPIC_MAPPING: dict[str, list[str]] = {
+        "notifications/tools/list-changed": [
+            "toolsListChanged",
+            "tools",
+            "notifications/tools/list-changed",
+        ],
+        "toolsListChanged": ["toolsListChanged", "tools"],
+        "notifications/prompts/list-changed": [
+            "promptsListChanged",
+            "prompts",
+            "notifications/prompts/list-changed",
+        ],
+        "promptsListChanged": ["promptsListChanged", "prompts"],
+        "notifications/resources/list-changed": [
+            "resourcesListChanged",
+            "resources",
+            "notifications/resources/list-changed",
+        ],
+        "resourcesListChanged": ["resourcesListChanged", "resources"],
+        "notifications/roots/list-changed": [
+            "rootsListChanged",
+            "roots",
+            "notifications/roots/list-changed",
+        ],
+        "rootsListChanged": ["rootsListChanged", "roots"],
+        "notifications/message": ["message", "notifications/message"],
+        "notifications/progress": ["progress", "notifications/progress"],
+    }
+
     def __init__(self, protocol_version: str = "2025-03-26"):
         self.version = protocol_version
+
+    @classmethod
+    def detect_dialect(cls, messages: list[dict[str, Any]]) -> str:
+        """Inspect message stream to auto-detect whether session is 2025 stateful or 2026 stateless."""
+        for msg in messages:
+            direction = msg.get("direction", "client_to_server")
+            if direction != "client_to_server":
+                continue
+
+            method = msg.get("method")
+            if method == "initialize":
+                return cls.DIALECT_STATEFUL
+
+            if method == "server/discover":
+                return cls.DIALECT_STATELESS
+
+            params = msg.get("params")
+            if isinstance(params, str):
+                try:
+                    params = json.loads(params)
+                except Exception:
+                    params = {}
+
+            if isinstance(params, dict):
+                meta = params.get("_meta")
+                if isinstance(meta, dict):
+                    if cls.META_PROTOCOL_VERSION_KEY in meta or "protocolVersion" in meta:
+                        return cls.DIALECT_STATELESS
+
+            meta_top = msg.get("_meta")
+            if isinstance(meta_top, dict):
+                if cls.META_PROTOCOL_VERSION_KEY in meta_top or "protocolVersion" in meta_top:
+                    return cls.DIALECT_STATELESS
+
+        return cls.DIALECT_STATEFUL
 
     def validate_message(
         self, message: dict[str, Any], direction: str, context: dict[str, Any] | None = None
@@ -162,6 +234,54 @@ class ProtocolValidator:
                         context=message,
                     )
                 )
+
+            if has_error and isinstance(message.get("error"), dict):
+                err_dict = message["error"]
+                err_code = None
+                try:
+                    if "code" in err_dict and err_dict["code"] is not None:
+                        err_code = int(err_dict["code"])
+                except (ValueError, TypeError):
+                    pass
+                raw_err_msg = str(err_dict.get("message", ""))
+                err_data = str(err_dict.get("data", ""))
+                combined = f"{raw_err_msg} {err_data}".lower()
+
+                if (
+                    err_code == -32003
+                    or "unsupportedprotocolversion" in combined
+                    or "unsupported protocol version" in combined
+                ):
+                    results.append(
+                        ValidationResult(
+                            rule_name="stateless_protocol_version",
+                            passed=False,
+                            severity="critical",
+                            message=f"Server returned UnsupportedProtocolVersionError (-32003): {raw_err_msg}",
+                            suggestion="Check supported versions via server/discover and update client _meta.protocolVersion",
+                            context=message,
+                        )
+                    )
+                elif (
+                    err_code == -32004
+                    or "missingrequiredclientcapability" in combined
+                    or "missing required client capability" in combined
+                    or "missing client capability" in combined
+                ):
+                    from mcp_debugger.protocol.error_classifier import ErrorClassifier
+
+                    missing_cap = ErrorClassifier.extract_missing_capability(err_dict, raw_err_msg)
+                    cap_flag = f" '{missing_cap}'" if missing_cap else ""
+                    results.append(
+                        ValidationResult(
+                            rule_name="stateless_client_capability",
+                            passed=False,
+                            severity="critical",
+                            message=f"Server returned MissingRequiredClientCapabilityError (-32004): {raw_err_msg}",
+                            suggestion=f"Declare missing capability{cap_flag} in client _meta.clientCapabilities",
+                            context=message,
+                        )
+                    )
         else:
             results.append(
                 ValidationResult(
@@ -199,7 +319,34 @@ class ProtocolValidator:
                         )
                     )
 
-        # 3. Check tool definitions in tools/list response result
+        # 3. Check subscriptions/listen request payload
+        if has_method and method == "subscriptions/listen":
+            params = message.get("params")
+            subs = None
+            if isinstance(params, dict):
+                subs = params.get("subscriptions") or params.get("topics")
+            if not isinstance(subs, list) or not all(isinstance(s, str) for s in subs):
+                results.append(
+                    ValidationResult(
+                        rule_name="subscriptions_listen_schema",
+                        passed=False,
+                        severity="warning",
+                        message="'subscriptions/listen' params should include 'subscriptions' as a list of topic strings",
+                        context=message,
+                    )
+                )
+            else:
+                results.append(
+                    ValidationResult(
+                        rule_name="subscriptions_listen_schema",
+                        passed=True,
+                        severity="info",
+                        message="Valid subscriptions/listen request",
+                        context=message,
+                    )
+                )
+
+        # 4. Check tool definitions in tools/list response result
         if is_response and isinstance(message.get("result"), dict):
             result_dict = message["result"]
             if "tools" in result_dict:
@@ -265,6 +412,55 @@ class ProtocolValidator:
                                     )
                                 )
 
+            # 5. Check server/discover response structure (MCP 2026-07-28)
+            if "supportedVersions" in result_dict or (
+                context and context.get("method") == "server/discover"
+            ):
+                supp_vers = result_dict.get("supportedVersions")
+                caps = result_dict.get("capabilities")
+                srv_info = result_dict.get("serverInfo")
+                instr = result_dict.get("instructions")
+
+                disc_errors: list[str] = []
+                if not isinstance(supp_vers, list) or not all(
+                    isinstance(v, str) for v in supp_vers
+                ):
+                    disc_errors.append("'supportedVersions' must be a list of strings")
+                if not isinstance(caps, dict):
+                    disc_errors.append("'capabilities' must be an object")
+                if (
+                    not isinstance(srv_info, dict)
+                    or not srv_info.get("name")
+                    or not isinstance(srv_info.get("name"), str)
+                ):
+                    disc_errors.append(
+                        "'serverInfo' must be an object with a non-empty 'name' string"
+                    )
+                if instr is not None and not isinstance(instr, str):
+                    disc_errors.append("'instructions' must be a string if provided")
+
+                if disc_errors:
+                    for err_msg in disc_errors:
+                        results.append(
+                            ValidationResult(
+                                rule_name="server_discover_schema",
+                                passed=False,
+                                severity="critical",
+                                message=f"Invalid server/discover response: {err_msg}",
+                                context=message,
+                            )
+                        )
+                else:
+                    results.append(
+                        ValidationResult(
+                            rule_name="server_discover_schema",
+                            passed=True,
+                            severity="info",
+                            message="server/discover response is fully compliant with MCP 2026-07-28",
+                            context=message,
+                        )
+                    )
+
         # If no checks failed, insert a generic passed check
         if not results:
             results.append(
@@ -305,9 +501,13 @@ class ProtocolValidator:
 
         results: list[ValidationResult] = []
 
+        session_protocol = session.get("protocol_version") if session else None
+        dialect = session_protocol or self.detect_dialect(rows)
+
         initialized_handshake_started = False
         initialized_handshake_responded = False
         initialized_notification_sent = False
+        active_subscriptions: set[str] = set()
 
         negotiated_server_capabilities: dict[str, Any] = {}
         initialize_request_id: Any | None = None
@@ -356,106 +556,163 @@ class ProtocolValidator:
                 if not r.passed:
                     results.append(r)
 
-            # 2. Handshake ordering & capability compliance
-            if direction == "client_to_server":
-                if message_type == "request":
-                    if method == "initialize":
-                        initialized_handshake_started = True
-                        initialize_request_id = msg_dict.get("id")
-                    else:
-                        if not initialized_handshake_started:
-                            results.append(
-                                ValidationResult(
-                                    rule_name="initialize_first",
-                                    passed=False,
-                                    severity="critical",
-                                    message=f"First request from client was '{method}', expected 'initialize'",
-                                    suggestion="Ensure client invokes 'initialize' request before any other command",
-                                    context=msg_dict,
-                                )
-                            )
+            # Track client subscriptions/listen calls
+            if direction == "client_to_server" and method == "subscriptions/listen":
+                params = msg_dict.get("params")
+                if isinstance(params, dict):
+                    subs = params.get("subscriptions") or params.get("topics")
+                    if isinstance(subs, list):
+                        for s in subs:
+                            if isinstance(s, str):
+                                active_subscriptions.add(s)
 
-                        if not initialized_notification_sent:
+            # Check unsolicited server notifications
+            if direction == "server_to_client" and message_type == "notification" and method:
+                if active_subscriptions:
+                    possible_topics = self.NOTIFICATION_TOPIC_MAPPING.get(method, [method])
+                    if (
+                        not any(t in active_subscriptions for t in possible_topics)
+                        and method not in active_subscriptions
+                    ):
+                        results.append(
+                            ValidationResult(
+                                rule_name="unsolicited_notification",
+                                passed=False,
+                                severity="warning",
+                                message=f"Server sent notification '{method}' which was not subscribed to via subscriptions/listen",
+                                suggestion="Subscribe to this notification type using subscriptions/listen before server emits it",
+                                context=msg_dict,
+                            )
+                        )
+
+            # 2. Handshake ordering & capability compliance
+            if dialect == self.DIALECT_STATELESS:
+                if direction == "client_to_server" and message_type == "request":
+                    params = msg_dict.get("params")
+                    meta = params.get("_meta") if isinstance(params, dict) else None
+                    has_meta_ver = False
+                    if isinstance(meta, dict):
+                        has_meta_ver = bool(
+                            meta.get(self.META_PROTOCOL_VERSION_KEY) or meta.get("protocolVersion")
+                        )
+                    if not has_meta_ver and isinstance(msg_dict.get("_meta"), dict):
+                        meta_top = msg_dict["_meta"]
+                        has_meta_ver = bool(
+                            meta_top.get(self.META_PROTOCOL_VERSION_KEY)
+                            or meta_top.get("protocolVersion")
+                        )
+                    if not has_meta_ver:
+                        results.append(
+                            ValidationResult(
+                                rule_name="stateless_meta_declaration",
+                                passed=False,
+                                severity="critical",
+                                message=f"Client request '{method}' missing required '_meta' protocolVersion declaration",
+                                suggestion=f"Include '_meta' with '{self.META_PROTOCOL_VERSION_KEY}' in params",
+                                context=msg_dict,
+                            )
+                        )
+            else:
+                # Stateful 2025-03-26 handshake validation
+                if direction == "client_to_server":
+                    if message_type == "request":
+                        if method == "initialize":
+                            initialized_handshake_started = True
+                            initialize_request_id = msg_dict.get("id")
+                        else:
+                            if not initialized_handshake_started:
+                                results.append(
+                                    ValidationResult(
+                                        rule_name="initialize_first",
+                                        passed=False,
+                                        severity="critical",
+                                        message=f"First request from client was '{method}', expected 'initialize'",
+                                        suggestion="Ensure client invokes 'initialize' request before any other command",
+                                        context=msg_dict,
+                                    )
+                                )
+
+                            if not initialized_notification_sent:
+                                if not initialized_handshake_responded:
+                                    results.append(
+                                        ValidationResult(
+                                            rule_name="handshake_order",
+                                            passed=False,
+                                            severity="critical",
+                                            message=f"Client request '{method}' sent before server initialize response",
+                                            context=msg_dict,
+                                        )
+                                    )
+                                else:
+                                    if method != "notifications/initialized":
+                                        results.append(
+                                            ValidationResult(
+                                                rule_name="handshake_order",
+                                                passed=False,
+                                                severity="warning",
+                                                message=f"Client request '{method}' sent before sending 'notifications/initialized' notification",
+                                                suggestion="Send 'notifications/initialized' immediately after receiving initialize response",
+                                                context=msg_dict,
+                                            )
+                                        )
+
+                            # Capability alignment check
+                            if method in self.CAPABILITY_REQUIRED_FOR_METHOD:
+                                required_cap = self.CAPABILITY_REQUIRED_FOR_METHOD[method]
+                                if (
+                                    initialized_handshake_responded
+                                    and required_cap not in negotiated_server_capabilities
+                                ):
+                                    results.append(
+                                        ValidationResult(
+                                            rule_name="capability_alignment",
+                                            passed=False,
+                                            severity="warning",
+                                            message=f"Client requested '{method}' but server did not declare '{required_cap}' capability in handshake response",
+                                            suggestion=f"Enable '{required_cap}' capability support on server configuration",
+                                            context=msg_dict,
+                                        )
+                                    )
+
+                    elif message_type == "notification":
+                        if method == "notifications/initialized":
+                            initialized_notification_sent = True
                             if not initialized_handshake_responded:
                                 results.append(
                                     ValidationResult(
                                         rule_name="handshake_order",
                                         passed=False,
                                         severity="critical",
-                                        message=f"Client request '{method}' sent before server initialize response",
+                                        message="Client sent 'notifications/initialized' before initialize response was received",
                                         context=msg_dict,
                                     )
                                 )
-                            else:
-                                if method != "notifications/initialized":
-                                    results.append(
-                                        ValidationResult(
-                                            rule_name="handshake_order",
-                                            passed=False,
-                                            severity="warning",
-                                            message=f"Client request '{method}' sent before sending 'notifications/initialized' notification",
-                                            suggestion="Send 'notifications/initialized' immediately after receiving initialize response",
-                                            context=msg_dict,
-                                        )
-                                    )
-
-                        # Capability alignment check
-                        if method in self.CAPABILITY_REQUIRED_FOR_METHOD:
-                            required_cap = self.CAPABILITY_REQUIRED_FOR_METHOD[method]
+                        else:
+                            # Other notification from client before handshake completion
                             if (
-                                initialized_handshake_responded
-                                and required_cap not in negotiated_server_capabilities
+                                not initialized_notification_sent
+                                and method != "notifications/cancelled"
                             ):
                                 results.append(
                                     ValidationResult(
-                                        rule_name="capability_alignment",
+                                        rule_name="handshake_order",
                                         passed=False,
                                         severity="warning",
-                                        message=f"Client requested '{method}' but server did not declare '{required_cap}' capability in handshake response",
-                                        suggestion=f"Enable '{required_cap}' capability support on server configuration",
+                                        message=f"Client sent notification '{method}' before completing initialized handshake",
                                         context=msg_dict,
                                     )
                                 )
 
-                elif message_type == "notification":
-                    if method == "notifications/initialized":
-                        initialized_notification_sent = True
-                        if not initialized_handshake_responded:
-                            results.append(
-                                ValidationResult(
-                                    rule_name="handshake_order",
-                                    passed=False,
-                                    severity="critical",
-                                    message="Client sent 'notifications/initialized' before initialize response was received",
-                                    context=msg_dict,
-                                )
-                            )
-                    else:
-                        # Other notification from client before handshake completion
+                elif direction == "server_to_client":
+                    if message_type == "response":
                         if (
-                            not initialized_notification_sent
-                            and method != "notifications/cancelled"
+                            initialize_request_id is not None
+                            and msg_dict.get("id") == initialize_request_id
                         ):
-                            results.append(
-                                ValidationResult(
-                                    rule_name="handshake_order",
-                                    passed=False,
-                                    severity="warning",
-                                    message=f"Client sent notification '{method}' before completing initialized handshake",
-                                    context=msg_dict,
-                                )
-                            )
-
-            elif direction == "server_to_client":
-                if message_type == "response":
-                    if (
-                        initialize_request_id is not None
-                        and msg_dict.get("id") == initialize_request_id
-                    ):
-                        initialized_handshake_responded = True
-                        result_data = msg_dict.get("result")
-                        if isinstance(result_data, dict):
-                            negotiated_server_capabilities = result_data.get("capabilities", {})
+                            initialized_handshake_responded = True
+                            result_data = msg_dict.get("result")
+                            if isinstance(result_data, dict):
+                                negotiated_server_capabilities = result_data.get("capabilities", {})
 
         # If everything in session validated cleanly, add a success validation result
         if not results:

@@ -282,6 +282,73 @@ class StdioProxy:
         try:
             payload = json.loads(stripped)
 
+            # Inspect and track protocol metadata from client and server
+            if isinstance(payload, dict):
+                if direction == "client_to_server":
+                    method = payload.get("method")
+                    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+                    if method == "initialize":
+                        proto_ver = params.get("protocolVersion")
+                        client_info = params.get("clientInfo")
+                        await self.database.update_session_protocol_info(
+                            self.session_id, protocol_version=proto_ver, client_info=client_info
+                        )
+                    else:
+                        meta = params.get("_meta") if isinstance(params, dict) else None
+                        if not meta and isinstance(payload.get("_meta"), dict):
+                            meta = payload["_meta"]
+                        if isinstance(meta, dict):
+                            proto_ver = (
+                                meta.get("io.modelcontextprotocol/protocolVersion")
+                                or meta.get("protocolVersion")
+                            )
+                            client_info = (
+                                meta.get("io.modelcontextprotocol/clientInfo")
+                                or meta.get("clientInfo")
+                            )
+                            if proto_ver or client_info:
+                                await self.database.update_session_protocol_info(
+                                    self.session_id, protocol_version=proto_ver, client_info=client_info
+                                )
+                elif direction == "server_to_client":
+                    result = payload.get("result")
+                    if isinstance(result, dict):
+                        if "supportedVersions" in result or "instructions" in result:
+                            # Full server/discover response payload
+                            full_server_info: dict[str, Any] = {}
+                            srv = result.get("serverInfo")
+                            if isinstance(srv, dict):
+                                full_server_info.update(srv)
+                            elif srv:
+                                full_server_info["name"] = str(srv)
+                            if "instructions" in result:
+                                full_server_info["instructions"] = result["instructions"]
+                            if "supportedVersions" in result:
+                                full_server_info["supportedVersions"] = result["supportedVersions"]
+                            if "capabilities" in result:
+                                full_server_info["capabilities"] = result["capabilities"]
+
+                            supp_vers = result.get("supportedVersions")
+                            proto_ver = (
+                                supp_vers[0]
+                                if (isinstance(supp_vers, list) and supp_vers)
+                                else None
+                            )
+                            await self.database.update_session_protocol_info(
+                                self.session_id,
+                                protocol_version=proto_ver,
+                                server_info=full_server_info,
+                            )
+                        else:
+                            proto_ver = result.get("protocolVersion")
+                            server_info = result.get("serverInfo")
+                            if proto_ver or server_info:
+                                await self.database.update_session_protocol_info(
+                                    self.session_id,
+                                    protocol_version=proto_ver,
+                                    server_info=server_info,
+                                )
+
             # If server response to tools/list, perform tool logging
             if direction == "server_to_client" and isinstance(payload, dict):
                 result = payload.get("result")

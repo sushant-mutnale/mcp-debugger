@@ -43,6 +43,8 @@ class SessionStats(BaseModel):
     latency_trend: list[float] = Field(default_factory=list)
     method_distribution: dict[str, int] = Field(default_factory=dict)
     error_trend: list[int] = Field(default_factory=list)
+    notification_count: int = 0
+    active_subscriptions: list[str] = Field(default_factory=list)
 
 
 class ToolChange(BaseModel):
@@ -156,6 +158,8 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
     # Compute client vs server message counts, and method distribution
     c2s_count = 0
     s2c_count = 0
+    notif_count = 0
+    active_subs: set[str] = set()
     method_dist: dict[str, int] = defaultdict(int)
 
     # We also keep track of error flags chronologically for the error trend sparkline
@@ -168,9 +172,26 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
         elif direction == "server_to_client":
             s2c_count += 1
 
+        if msg.get("message_type") == "notification":
+            notif_count += 1
+
         method = msg.get("method")
         if method:
             method_dist[method] += 1
+
+        if method == "subscriptions/listen":
+            p = msg.get("params")
+            if isinstance(p, str):
+                try:
+                    p = json.loads(p)
+                except Exception:
+                    p = {}
+            if isinstance(p, dict):
+                subs = p.get("subscriptions") or p.get("topics")
+                if isinstance(subs, list):
+                    for s in subs:
+                        if isinstance(s, str):
+                            active_subs.add(s)
 
         # Check for error status
         is_err = False
@@ -311,6 +332,8 @@ async def aggregate_session_stats(db: Database, session_id: int) -> SessionStats
         latency_trend=latency_list,
         method_distribution=dict(method_dist),
         error_trend=chrono_errors,
+        notification_count=notif_count,
+        active_subscriptions=sorted(active_subs),
     )
 
 

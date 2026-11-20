@@ -640,6 +640,41 @@ def inspect(
                     )
                     panels.append(panel)
 
+                # If session has discovery info (from server/discover), render banner
+                if session.get("server_info"):
+                    try:
+                        raw_srv = session["server_info"]
+                        s_info = (
+                            json.loads(raw_srv)
+                            if isinstance(raw_srv, str)
+                            else raw_srv
+                        )
+                        if isinstance(s_info, dict) and (
+                            s_info.get("instructions") or s_info.get("supportedVersions")
+                        ):
+                            disc_text = Text()
+                            srv_name = s_info.get("name") or "MCP Server"
+                            srv_ver = s_info.get("version") or ""
+                            ver_suffix = f" (v{srv_ver})" if srv_ver else ""
+                            disc_text.append(f"Server: {srv_name}{ver_suffix}\n", style="bold cyan")
+                            if s_info.get("supportedVersions"):
+                                versions_str = ", ".join(s_info["supportedVersions"])
+                                disc_text.append(f"Supported Versions: {versions_str}\n", style="green")
+                            if s_info.get("instructions"):
+                                disc_text.append(
+                                    f"\nDiscovery Instructions:\n{s_info['instructions']}",
+                                    style="italic yellow",
+                                )
+                            disc_panel = Panel(
+                                disc_text,
+                                title="[bold magenta]MCP Server Discovery (server/discover)[/bold magenta]",
+                                border_style="magenta",
+                                safe_box=True,
+                            )
+                            panels.insert(0, disc_panel)
+                    except Exception:
+                        pass
+
                 if output:
                     with open(output, "w", encoding="utf-8") as f:
                         file_console = Console(file=f, force_terminal=False, color_system=None)

@@ -539,3 +539,42 @@ def test_compare_sessions_stats_edge_cases() -> None:
     )
     comp3 = compare_sessions_stats(stats_a, stats_b3)
     assert comp3.duration_change_str == "no change"
+
+
+@pytest.mark.asyncio
+async def test_session_stats_includes_notifications_and_subscriptions(mock_db_path: str) -> None:
+    """Verify aggregate_session_stats computes notification counts and active subscriptions."""
+    db = Database(db_path=mock_db_path)
+    await db.connect()
+    session_id = await db.create_session("stats-server")
+
+    # 1. subscriptions/listen request
+    await db.log_message(
+        session_id=session_id,
+        direction="client_to_server",
+        message={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "subscriptions/listen",
+            "params": {"subscriptions": ["toolsListChanged", "promptsListChanged"]},
+        },
+    )
+
+    # 2. Server notification
+    await db.log_message(
+        session_id=session_id,
+        direction="server_to_client",
+        message={
+            "jsonrpc": "2.0",
+            "method": "notifications/tools/list-changed",
+            "params": {},
+        },
+    )
+
+    stats = await aggregate_session_stats(db, session_id)
+    await db.close()
+
+    assert stats.notification_count == 1
+    assert "toolsListChanged" in stats.active_subscriptions
+    assert "promptsListChanged" in stats.active_subscriptions
+

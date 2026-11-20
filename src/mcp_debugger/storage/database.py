@@ -592,6 +592,43 @@ class Database:
         except Exception as e:
             logger.warning("Failed to close session: %s", e)
 
+    async def update_session_protocol_info(
+        self,
+        session_id: int,
+        protocol_version: str | None = None,
+        client_info: dict[str, Any] | str | None = None,
+        server_info: dict[str, Any] | str | None = None,
+    ) -> None:
+        """Update session record with protocol version, client info, or server info."""
+        try:
+            conn = await self._get_conn()
+            fields: list[str] = []
+            values: list[Any] = []
+
+            if protocol_version is not None:
+                fields.append("protocol_version = ?")
+                values.append(protocol_version)
+
+            if client_info is not None:
+                fields.append("client_info = ?")
+                values.append(
+                    json.dumps(client_info) if isinstance(client_info, dict) else str(client_info)
+                )
+
+            if server_info is not None:
+                fields.append("server_info = ?")
+                values.append(
+                    json.dumps(server_info) if isinstance(server_info, dict) else str(server_info)
+                )
+
+            if fields:
+                values.append(session_id)
+                query = f"UPDATE sessions SET {', '.join(fields)} WHERE id = ?"
+                await conn.execute(query, tuple(values))
+                await conn.commit()
+        except Exception as e:
+            logger.warning("Failed to update session protocol info: %s", e)
+
     async def log_raw_line(
         self,
         session_id: int,
