@@ -191,13 +191,20 @@ class FailureClassifier:
         first_step_idx = tool_steps[0].get("step_index", 0)
         prev_signature = self._tool_signature(tool_steps[0].get("input"))
         prev_tool_name = self._extract_tool_name(tool_steps[0].get("input"))
+        prev_is_err = self._is_error_output(tool_steps[0].get("output"))
 
         for i in range(1, len(tool_steps)):
             curr_step = tool_steps[i]
             curr_sig = self._tool_signature(curr_step.get("input"))
             curr_tool = self._extract_tool_name(curr_step.get("input"))
+            curr_is_err = self._is_error_output(curr_step.get("output"))
 
-            if curr_sig == prev_signature and curr_sig != ("", ""):
+            if (
+                curr_sig == prev_signature
+                and curr_sig != ("", "")
+                and not curr_is_err
+                and not prev_is_err
+            ):
                 consecutive_count += 1
                 if consecutive_count >= self.loop_threshold:
                     return FailureDiagnosis(
@@ -220,6 +227,7 @@ class FailureClassifier:
                 consecutive_count = 1
                 prev_signature = curr_sig
                 prev_tool_name = curr_tool
+                prev_is_err = curr_is_err
                 first_step_idx = curr_step.get("step_index", i)
 
         # 2. Cyclic repeating tool call patterns (e.g. A -> B -> A -> B)
@@ -302,6 +310,18 @@ class FailureClassifier:
                     ],
                 )
         return None
+
+    def _is_error_output(self, output_val: Any) -> bool:
+        if isinstance(output_val, dict):
+            return output_val.get("isError") is True
+        if isinstance(output_val, str):
+            try:
+                parsed = json.loads(output_val)
+                if isinstance(parsed, dict):
+                    return parsed.get("isError") is True
+            except Exception:
+                pass
+        return False
 
     def _extract_tool_name(self, input_val: Any) -> str:
         if isinstance(input_val, dict):
