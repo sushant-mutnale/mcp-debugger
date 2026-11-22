@@ -1773,7 +1773,12 @@ def export(
     format: str = typer.Option(
         "json",
         "--format",
-        help="Export format: json | markdown | otlp",
+        help="Export format: json | markdown | otlp | sarif",
+    ),
+    sarif: str | None = typer.Option(
+        None,
+        "--sarif",
+        help="Shortcut to export session as SARIF v2.1.0 to target file",
     ),
     output: str | None = typer.Option(
         None,
@@ -1825,9 +1830,11 @@ def export(
     effective_pretty = pretty or bool(_cfg.get("export.pretty_json", False))
 
     fmt = effective_format.lower().strip()
-    if fmt not in {"json", "markdown", "otlp"}:
+    if sarif:
+        fmt = "sarif"
+    if fmt not in {"json", "markdown", "otlp", "sarif"}:
         console.print(
-            f"[red]Error: unknown format '{effective_format}'. Choose json, markdown, or otlp.[/red]"
+            f"[red]Error: unknown format '{effective_format}'. Choose json, markdown, otlp, or sarif.[/red]"
         )
         sys.exit(1)
 
@@ -1858,6 +1865,36 @@ def export(
                 sys.exit(1)
         finally:
             await db.close()
+
+        effective_output = sarif if sarif else output
+
+        # ---- SARIF ----------------------------------------------------------
+        if fmt == "sarif":
+            from mcp_debugger.exporters.sarif_exporter import SarifExporter
+            from mcp_debugger.protocol.validator import ProtocolValidator
+
+            exporter_sarif = SarifExporter(pretty=effective_pretty)
+            db_s = Database()
+            await db_s.connect()
+            try:
+                validator = ProtocolValidator()
+                v_results = await validator.validate_session(session_id, db_s)
+                replays = await db_s.get_replays(session_id)
+            finally:
+                await db_s.close()
+
+            sarif_data = exporter_sarif.generate_sarif(
+                session=dict(session),
+                validation_results=v_results,
+                replay_mismatches=replays,
+            )
+            serialized = json.dumps(sarif_data, indent=2 if effective_pretty else None)
+            if effective_output:
+                Path(effective_output).write_text(serialized, encoding="utf-8")
+                console.print(f"[green]Exported SARIF to {Path(effective_output).resolve()}[/green]")
+            else:
+                print(serialized)
+            return
 
         # ---- OTLP -----------------------------------------------------------
         if fmt == "otlp":
@@ -2313,6 +2350,9 @@ def attribute(
     json_mode: bool = typer.Option(
         False, "--json", help="Output structured JSON diagnosis"
     ),
+    sarif: Path | None = typer.Option(
+        None, "--sarif", help="Export causal attribution diagnosis as SARIF v2.1.0 to path"
+    ),
 ) -> None:
     """Analyze a failed session to classify failure boundary and isolate Point of Commitment (PoC)."""
     from mcp_debugger.attribution.ablation import AblationEngine
@@ -2493,6 +2533,13 @@ def attribute(
                 out_dict["guardrail_triggered"] = live_res.guardrail_triggered
             print(json.dumps(out_dict, indent=2))
             return
+
+        if sarif:
+            from mcp_debugger.exporters.sarif_exporter import SarifExporter
+
+            sarif_exp = SarifExporter(pretty=True)
+            sarif_exp.export(out=sarif, session=dict(session), attribution_report=report)
+            console.print(f"[green]Exported attribution report as SARIF to {sarif}[/green]")
 
         # Rich terminal UI
         category_styles = {
@@ -2780,6 +2827,9 @@ def ci(
     json_mode: bool = typer.Option(
         False, "--json", help="Output machine-readable JSON summary"
     ),
+    sarif: Path | None = typer.Option(
+        None, "--sarif", help="Export CI quality gate findings as SARIF v2.1.0 to path"
+    ),
 ) -> None:
     """Run automated CI/CD compliance gates and replay regression checks across sessions."""
     from mcp_debugger.protocol.validator import ProtocolValidator
@@ -2787,6 +2837,8 @@ def ci(
     async def _run() -> None:
         validator = ProtocolValidator()
         session_reports: list[dict[str, Any]] = []
+        all_validation_results: list[Any] = []
+        all_replay_mismatches: list[dict[str, Any]] = []
 
         for ident in session_identifiers:
             target_sessions: list[tuple[Database, dict[str, Any]]] = []
@@ -2909,6 +2961,7 @@ def ci(
                 # 1. Protocol Validation
                 try:
                     proto_results = await validator.validate_session(sid, s_db)
+                    all_validation_results.extend(proto_results)
                     crit_errors = [
                         r for r in proto_results if not r.passed and r.severity == "critical"
                     ]
@@ -2931,6 +2984,7 @@ def ci(
                 # 2. Replay Regressions
                 try:
                     replays = await s_db.get_replays(sid)
+                    all_replay_mismatches.extend(replays)
                     replay_mismatches = sum(r.get("mismatches", 0) for r in replays)
                     if replay_mismatches > 0:
                         failures.append(
@@ -3015,6 +3069,24 @@ def ci(
         any_failed = any(r["status"] == "FAILED" for r in session_reports)
         gate_passed = not any_failed and len(session_reports) > 0
         exit_code = 0 if gate_passed else 1
+
+        all_warns = [w for r in session_reports for w in r["warnings"]]
+
+        if sarif:
+            from mcp_debugger.exporters.sarif_exporter import SarifExporter
+
+            exporter_sarif = SarifExporter(pretty=True)
+            first_sid = session_reports[0].get("session_id") if session_reports else 0
+            exporter_sarif.export(
+                out=sarif,
+                session={"id": first_sid} if first_sid else None,
+                validation_results=all_validation_results,
+                replay_mismatches=all_replay_mismatches,
+                warnings=all_warns,
+            )
+            console.print(
+                f"[green]Exported CI findings as SARIF to {Path(sarif).resolve()}[/green]"
+            )
 
         if json_mode:
             payload = {
