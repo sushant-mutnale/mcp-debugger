@@ -1,71 +1,173 @@
-"""Automated Screencast Producer & Video-to-GIF Transcoder.
+"""Automated End-to-End Real Screencast Pipeline & Transcoder for mcp-debugger.
 
-Records real running interactions from mcp-debugger Web UI & CLI,
-and generates fast-paced, high-definition assets for documentation:
-- docs/demo.mp4 (Full-resolution screencast video)
-- docs/demo.gif (Crisp, optimized animated GIF demo replacing synthetic PIL drawing)
+Drives headless Chrome via Playwright, records the live Web UI & Multi-Agent Flow,
+and produces:
+- docs/demo.mp4 (High-definition authentic video demo)
+- docs/demo.gif (Crisp, optimized fast-paced animated GIF for README)
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import os
-import shutil
+import time
 from pathlib import Path
 
 try:
     import imageio.v3 as iio
+    import numpy as np
     from PIL import Image
+    from playwright.sync_api import sync_playwright
 except ImportError:
     iio = None  # type: ignore[assignment]
+    np = None  # type: ignore[assignment]
     Image = None  # type: ignore[assignment]
+    sync_playwright = None  # type: ignore[assignment]
+
+from rich.console import Console
+
+from mcp_debugger.live import LiveDashboard
+
+CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+FRAMES_DIR = Path("scratch/playwright_frames")
 
 
-def convert_mp4_to_gif(
-    mp4_path: str | Path,
-    gif_path: str | Path,
-    max_width: int = 860,
-    fps: int = 12,
-    speedup: float = 1.25,
-) -> None:
-    """Transcode a real MP4 screencast into an optimized, fast-paced animated GIF."""
-    if iio is None or Image is None:
-        raise RuntimeError("imageio, imageio-ffmpeg, and pillow are required for transcoding.")
+def capture_tui_frame(db_path: str = "demo_multi_agent.db") -> Path:
+    """Render Terminal TUI dashboard to HTML."""
+    console = Console(record=True, width=110)
+    dash = LiveDashboard(1, db_path=db_path, console=console)
+    asyncio.run(dash.render_once())
+    html_content = console.export_html(inline_styles=True)
 
-    mp4_file = Path(mp4_path)
-    if not mp4_file.exists():
-        raise FileNotFoundError(f"Source MP4 not found: {mp4_file}")
+    tui_html = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<style>body { background: #16161e; margin: 0; padding: 40px; display: flex; '
+        'justify-content: center; align-items: center; min-height: 100vh; font-family: monospace; }</style>'
+        '</head><body>'
+        '<div style="box-shadow: 0 20px 50px rgba(0,0,0,0.6); border-radius: 12px; overflow: hidden; border: 1px solid #2f354a; background: #1a1b26; padding: 20px;">'
+        f"{html_content}"
+        "</div></body></html>"
+    )
+    tui_path = Path("scratch/live_tui.html")
+    tui_path.parent.mkdir(parents=True, exist_ok=True)
+    tui_path.write_text(tui_html, encoding="utf-8")
+    return tui_path
 
-    print(f"Reading video frames from {mp4_file}...")
-    frames = []
-    # Read all video frames
-    step_skip = max(1, round(speedup))
-    for idx, frame in enumerate(iio.imiter(str(mp4_file))):
-        if idx % step_skip == 0:
-            img = Image.fromarray(frame)
-            if img.width > max_width:
-                aspect = img.height / img.width
-                new_height = int(max_width * aspect)
-                img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
-            # Quantize with adaptive palette for crisp rendering and smaller GIF size
-            img_quantized = img.quantize(colors=128, method=Image.Quantize.MEDIANCUT)
-            frames.append(img_quantized)
 
-    if not frames:
-        raise ValueError("No video frames could be extracted from MP4.")
+def run_screencast_capture(server_url: str = "http://127.0.0.1:8080") -> None:
+    """Drive browser, capture authentic UI interactions, and compile demo assets."""
+    if sync_playwright is None:
+        raise RuntimeError("playwright is required for screencast capture.")
 
-    print(f"Extracted and downsampled {len(frames)} frames. Encoding animated GIF to {gif_path}...")
-    frame_duration_ms = int(1000.0 / fps)
-    frames[0].save(
+    FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+    tui_path = capture_tui_frame()
+
+    captured_frames: list[tuple[Path, int]] = []
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=CHROME_PATH, headless=True)
+        context = browser.new_context(viewport={"width": 1280, "height": 720})
+        page = context.new_page()
+
+        # 1. Sessions List Overview
+        page.goto(f"{server_url}/")
+        page.wait_for_selector("tbody tr", timeout=5000)
+        time.sleep(1.0)
+        f1 = FRAMES_DIR / "01_sessions_overview.png"
+        page.screenshot(path=str(f1))
+        captured_frames.append((f1, 2000))
+
+        # 2. Navigate to Session #1 Detail
+        page.goto(f"{server_url}/session/1")
+        page.wait_for_selector("#headerName", timeout=5000)
+        time.sleep(1.0)
+        f2 = FRAMES_DIR / "02_session_detail_overview.png"
+        page.screenshot(path=str(f2))
+        captured_frames.append((f2, 2000))
+
+        # 3. Click Tools tab
+        page.click('button[data-tab="tools"]')
+        time.sleep(1.0)
+        f3 = FRAMES_DIR / "03_tools_inspection.png"
+        page.screenshot(path=str(f3))
+        captured_frames.append((f3, 1800))
+
+        # 4. Click Multi-Agent Flow tab
+        page.click('button[data-tab="agents"]')
+        page.wait_for_selector(".agent-card", timeout=5000)
+        time.sleep(1.2)
+        f4 = FRAMES_DIR / "04_agent_flow_topology.png"
+        page.screenshot(path=str(f4))
+        captured_frames.append((f4, 2500))
+
+        # 5. Filter to SecurityResearcher
+        page.click('.agent-card[data-agent-name="SecurityResearcher"]')
+        time.sleep(1.0)
+        f5 = FRAMES_DIR / "05_filter_security_researcher.png"
+        page.screenshot(path=str(f5))
+        captured_frames.append((f5, 2200))
+
+        # 6. Filter to PatchGenerator
+        page.click('.agent-card[data-agent-name="PatchGenerator"]')
+        time.sleep(1.0)
+        f6 = FRAMES_DIR / "06_filter_patch_generator.png"
+        page.screenshot(path=str(f6))
+        captured_frames.append((f6, 2200))
+
+        # 7. Render Terminal TUI Dashboard
+        page.goto(tui_path.resolve().as_uri())
+        time.sleep(0.8)
+        f7 = FRAMES_DIR / "07_terminal_tui_dashboard.png"
+        page.screenshot(path=str(f7))
+        captured_frames.append((f7, 2500))
+
+        browser.close()
+
+    assemble_media_assets(captured_frames)
+
+
+def assemble_media_assets(scenes: list[tuple[Path, int]]) -> None:
+    """Combine scene snapshots into high-FPS GIF and MP4 assets."""
+    if iio is None or Image is None or np is None:
+        raise RuntimeError("imageio, imageio-ffmpeg, and pillow are required.")
+
+    target_width = 864
+    fps = 10
+    gif_frames = []
+    durations = []
+    video_frames_rgb = []
+
+    for path, duration_ms in scenes:
+        img = Image.open(path).convert("RGB")
+        aspect = img.height / img.width
+        target_height = int(target_width * aspect)
+        target_height = (target_height // 16) * 16
+        img_resized = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+        q_frame = img_resized.quantize(colors=128, method=Image.Quantize.MEDIANCUT)
+        gif_frames.append(q_frame)
+        durations.append(duration_ms)
+
+        ticks = int((duration_ms / 1000.0) * fps)
+        frame_np = np.array(img_resized)
+        for _ in range(ticks):
+            video_frames_rgb.append(frame_np)
+
+    gif_path = Path("docs/demo.gif")
+    mp4_path = Path("docs/demo.mp4")
+
+    gif_frames[0].save(
         str(gif_path),
         save_all=True,
-        append_images=frames[1:],
-        duration=frame_duration_ms,
+        append_images=gif_frames[1:],
+        duration=durations,
         loop=0,
         optimize=True,
     )
-    print(f"Successfully generated {gif_path} ({os.path.getsize(gif_path):,} bytes)!")
+    print(f"docs/demo.gif created ({gif_path.stat().st_size:,} bytes)")
+
+    iio.imwrite(str(mp4_path), video_frames_rgb, fps=fps)
+    print(f"docs/demo.mp4 created ({mp4_path.stat().st_size:,} bytes)")
 
 
 async def seed_demo_database(db_path: str = "demo_multi_agent.db") -> None:
@@ -79,7 +181,6 @@ async def seed_demo_database(db_path: str = "demo_multi_agent.db") -> None:
     db = Database(db_path=db_path)
     await db.connect()
     try:
-        # Session 2: Claude Code Filesystem Workspace Inspection
         s2 = await db.create_session(
             server_command="npx @modelcontextprotocol/server-filesystem D:/workspace",
             friendly_name="Claude Code Filesystem Workspace Inspection",
@@ -95,18 +196,7 @@ async def seed_demo_database(db_path: str = "demo_multi_agent.db") -> None:
                 "result": {"tools": [{"name": "read_file"}, {"name": "write_file"}, {"name": "list_directory"}]},
             },
         )
-        await db.log_message(
-            s2,
-            "client_to_server",
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "read_file", "arguments": {"path": "README.md"}}},
-        )
-        await db.log_message(
-            s2,
-            "server_to_client",
-            {"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "Project Overview"}]}},
-        )
 
-        # Session 3: Production Query Diagnostic & Trace
         s3 = await db.create_session(
             server_command="uv run mcp-server-postgres postgresql://localhost/analytics",
             friendly_name="Production Query Diagnostic & Trace",
@@ -117,11 +207,6 @@ async def seed_demo_database(db_path: str = "demo_multi_agent.db") -> None:
             "client_to_server",
             {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "query", "arguments": {"sql": "SELECT COUNT(*) FROM users"}}},
         )
-        await db.log_message(
-            s3,
-            "server_to_client",
-            {"jsonrpc": "2.0", "id": 1, "result": {"rows": [{"count": 142050}]}},
-        )
     finally:
         await db.close()
     print("Database seeding completed.")
@@ -129,7 +214,7 @@ async def seed_demo_database(db_path: str = "demo_multi_agent.db") -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Record real screencast and convert to GIF.")
-    parser.add_argument("--transcode", type=str, help="Transcode an existing MP4 into docs/demo.gif")
+    parser.add_argument("--record", action="store_true", help="Record live Web UI via Playwright")
     parser.add_argument("--seed", action="store_true", help="Seed demo_multi_agent.db")
     args = parser.parse_args()
 
@@ -137,12 +222,12 @@ def main() -> None:
         asyncio.run(seed_demo_database())
         return
 
-    if args.transcode:
-        convert_mp4_to_gif(args.transcode, "docs/demo.gif")
-        shutil.copyfile(args.transcode, "docs/demo.mp4")
+    if args.record:
+        run_screencast_capture()
         return
 
-    print("Use --seed to prepare the database, or --transcode <screencast.mp4> to produce docs/demo.gif & docs/demo.mp4.")
+    # Default action if no args
+    run_screencast_capture()
 
 
 if __name__ == "__main__":

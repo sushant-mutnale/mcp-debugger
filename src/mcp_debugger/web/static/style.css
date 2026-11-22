@@ -108,6 +108,11 @@
   border-bottom-color: #7aa2f7;
 }
 
+/* ── Utility ──────────────────────────────────────────────────── */
+.hidden {
+  display: none !important;
+}
+
 /* ── Modal ────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
@@ -117,6 +122,10 @@
   align-items: center;
   justify-content: center;
   z-index: 50;
+}
+
+.modal-overlay.hidden {
+  display: none !important;
 }
 
 .modal-box {

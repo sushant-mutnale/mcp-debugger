@@ -187,12 +187,18 @@
   function openDeleteModal(id, name) {
     pendingDeleteId = id;
     if (deleteName) deleteName.textContent = name;
-    if (deleteModal) deleteModal.classList.remove("hidden");
+    if (deleteModal) {
+      deleteModal.classList.remove("hidden");
+      deleteModal.style.display = "flex";
+    }
   }
 
   function closeDeleteModal() {
     pendingDeleteId = null;
-    if (deleteModal) deleteModal.classList.add("hidden");
+    if (deleteModal) {
+      deleteModal.classList.add("hidden");
+      deleteModal.style.display = "none";
+    }
   }
 
   // ── Escape HTML ───────────────────────────────────────────────

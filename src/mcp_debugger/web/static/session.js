@@ -368,10 +368,16 @@
 
   // ── Delete ────────────────────────────────────────────────────
   if (deleteBtn && deleteModal) {
-    deleteBtn.addEventListener("click", () => deleteModal.classList.remove("hidden"));
+    deleteBtn.addEventListener("click", () => {
+      deleteModal.classList.remove("hidden");
+      deleteModal.style.display = "flex";
+    });
   }
-  if (cancelDeleteBtn) {
-    cancelDeleteBtn.addEventListener("click", () => deleteModal.classList.add("hidden"));
+  if (cancelDeleteBtn && deleteModal) {
+    cancelDeleteBtn.addEventListener("click", () => {
+      deleteModal.classList.add("hidden");
+      deleteModal.style.display = "none";
+    });
   }
   if (confirmDeleteBtn && SESSION_ID) {
     confirmDeleteBtn.addEventListener("click", async () => {
