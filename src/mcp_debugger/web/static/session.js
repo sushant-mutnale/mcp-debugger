@@ -44,7 +44,8 @@
   function escHtml(str) {
     return String(str ?? "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   function formatDate(dateStr) {
@@ -254,12 +255,25 @@
         ? "border-[#7aa2f7] bg-[#24283b] ring-2 ring-[#7aa2f7]/50"
         : "border-[#292e42] bg-[#1f2335] hover:border-[#414868]";
 
+      const parentAgent = agent.parent_agent_id
+        ? agents.find((a) => a.id === agent.parent_agent_id)
+        : null;
+      const parentName = parentAgent ? parentAgent.name : null;
+      const latencyDisplay = aStats.latency_sum != null
+        ? `${(aStats.latency_sum / (aStats.steps || 1)).toFixed(1)}ms avg`
+        : "—";
+
       return `
         <div class="agent-card rounded-xl p-5 border transition-all duration-150 cursor-pointer shadow-md ${activeBorder}"
              data-agent-name="${escHtml(agent.name)}">
           <div class="flex items-start justify-between gap-2 mb-3">
             <div class="min-w-0">
               <h4 class="font-bold text-white text-base truncate">${escHtml(agent.name)}</h4>
+              ${parentName ? `
+                <div class="text-[11px] text-gray-400 font-mono mt-0.5">
+                  ↳ Sub-agent of <span class="text-gray-300 font-medium">${escHtml(parentName)}</span>
+                </div>
+              ` : ""}
               <div class="flex items-center gap-1.5 flex-wrap mt-1">
                 <span class="badge" style="background-color: rgba(122, 162, 247, 0.15); color: #7aa2f7; border-color: rgba(122, 162, 247, 0.3);">
                   ${escHtml(agent.role || "agent")}
@@ -286,7 +300,7 @@
               <span class="text-gray-200 font-semibold">${Number(aStats.tokens ?? 0).toLocaleString()}</span>
             </div>
             <div class="col-span-2 mt-1 flex justify-between items-center text-[11px] text-gray-500">
-              <span>Latency: ${aStats.latency_sum ? `${Number(aStats.latency_sum).toFixed(1)}ms` : "—"}</span>
+              <span>Latency: ${latencyDisplay}</span>
               <span class="text-[#7aa2f7] hover:underline">${isSelected ? "✕ Clear filter" : "Filter handoffs →"}</span>
             </div>
           </div>

@@ -235,13 +235,15 @@ async def api_get_session_agents(session_id: int) -> dict[str, Any]:
             in_payload: dict[str, Any] = {}
             if isinstance(raw_in, str):
                 try:
-                    in_payload = json.loads(raw_in)
+                    parsed = json.loads(raw_in)
+                    if isinstance(parsed, dict):
+                        in_payload = parsed
                 except Exception:
                     in_payload = {}
             elif isinstance(raw_in, dict):
                 in_payload = raw_in
 
-            from_agent = in_payload.get("from_agent") or s.get("agent_name") or "unknown"
+            from_agent = in_payload.get("from_agent") or agent_name or "unknown"
             to_agent = in_payload.get("to_agent") or "unknown"
             task = in_payload.get("task") or ""
             latency_ms = s.get("latency_ms")

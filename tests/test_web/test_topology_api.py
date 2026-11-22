@@ -131,6 +131,66 @@ async def test_get_session_agents_not_found(mock_db_path: str) -> None:
         assert "Session not found" in resp.json()["detail"] or "999999 not found" in resp.json()["detail"]
 
 
+@pytest.mark.asyncio
+async def test_get_session_agents_robust_fallbacks(mock_db_path: str) -> None:
+    """Verify non-dict handoff payloads and steps with null agent_name fallback cleanly."""
+    db = Database(db_path=mock_db_path)
+    await db.connect()
+
+    session_id = await db.create_session("robust-session")
+    agent_id = await db.create_agent(
+        session_id=session_id,
+        name="AutoAgent",
+        role="worker",
+    )
+
+    # Step with non-dict JSON input (e.g. list [1, 2, 3]) and null agent_name but agent_id set
+    await db.log_step(
+        session_id=session_id,
+        step_index=0,
+        step_type="handoff",
+        agent_name=None,
+        agent_id=agent_id,
+        input_data="[1, 2, 3]",
+        output_data="scalars",
+        tokens_input=50,
+        tokens_output=25,
+        latency_ms=15.0,
+    )
+
+    # Step with completely invalid string input and null agent_name but agent_id set
+    await db.log_step(
+        session_id=session_id,
+        step_index=1,
+        step_type="llm_call",
+        agent_name=None,
+        agent_id=agent_id,
+        input_data="not json at all",
+        tokens_input=100,
+        tokens_output=50,
+        latency_ms=30.0,
+    )
+
+    await db.close()
+
+    with TestClient(app) as client:
+        resp = client.get(f"/api/sessions/{session_id}/agents")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # agent_stats resolved from agent_id
+        stats = data["agent_stats"]
+        assert "AutoAgent" in stats
+        assert stats["AutoAgent"]["steps"] == 2
+        assert stats["AutoAgent"]["tokens"] == 225
+
+        # handoff resolved from agent_id without error on non-dict payload
+        assert len(data["handoffs"]) == 1
+        h = data["handoffs"][0]
+        assert h["from_agent"] == "AutoAgent"
+        assert h["to_agent"] == "unknown"
+
+
 def test_session_detail_html_renders_agents_tab() -> None:
     """Verify session_detail.html contains the Multi-Agent tab button and panel containers."""
     with TestClient(app) as client:
