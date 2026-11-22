@@ -9,6 +9,7 @@ from rich import box
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
@@ -32,6 +33,20 @@ class LiveDashboard:
         self.console = console if console is not None else Console()
         self.refresh_rate = max(0.1, refresh_rate)
         self._running = False
+        self._db: Database | None = None
+
+    async def _get_db(self) -> Database:
+        """Get or initialize the cached database connection."""
+        if self._db is None:
+            self._db = Database(db_path=self.db_path)
+            await self._db.connect()
+        return self._db
+
+    async def close(self) -> None:
+        """Close the cached database connection if open."""
+        if self._db is not None:
+            await self._db.close()
+            self._db = None
 
     def stop(self) -> None:
         """Signal the polling loop to stop."""
@@ -39,25 +54,21 @@ class LiveDashboard:
 
     async def fetch_state(self) -> dict[str, Any]:
         """Fetch session, agents, hierarchy, and steps from database."""
-        db = Database(db_path=self.db_path)
-        await db.connect()
-        try:
-            session = await db.get_session(self.session_id)
-            if not session:
-                return {
-                    "session": None,
-                    "agents": [],
-                    "hierarchy": [],
-                    "steps": [],
-                    "total_tokens": 0,
-                    "total_cost": 0.0,
-                    "cost_report": None,
-                }
-            flat_agents = await db.get_agents(self.session_id)
-            hierarchy = await db.get_agent_hierarchy(self.session_id)
-            steps = await db.get_steps(self.session_id)
-        finally:
-            await db.close()
+        db = await self._get_db()
+        session = await db.get_session(self.session_id)
+        if not session:
+            return {
+                "session": None,
+                "agents": [],
+                "hierarchy": [],
+                "steps": [],
+                "total_tokens": 0,
+                "total_cost": 0.0,
+                "cost_report": None,
+            }
+        flat_agents = await db.get_agents(self.session_id)
+        hierarchy = await db.get_agent_hierarchy(self.session_id)
+        steps = await db.get_steps(self.session_id)
 
         cost_calc = CostCalculator()
         cost_report = cost_calc.compute_session_costs(self.session_id, steps, flat_agents)
@@ -73,13 +84,20 @@ class LiveDashboard:
         }
 
     def build_header(self, state: dict[str, Any]) -> Panel:
-        """Construct header panel showing session id, transport, server, steps, tokens, cost."""
+        """Construct header panel showing session id, status, server, transport, steps, tokens, cost."""
         session = state.get("session") or {}
         sid = session.get("id", self.session_id)
-        server = session.get("server_name") or session.get("server_command") or "unknown"
-        if len(str(server)) > 35:
-            server = str(server)[:32] + "..."
-        transport = session.get("transport") or "stdio"
+        raw_server = session.get("server_name") or session.get("server_command") or "unknown"
+        server_str = str(raw_server)[:32] + "..." if len(str(raw_server)) > 35 else str(raw_server)
+        server = escape(server_str)
+        transport = escape(str(session.get("transport") or "stdio"))
+        status = escape(str(session.get("status") or "unknown"))
+        status_color = (
+            "green"
+            if status == "running"
+            else ("cyan" if status == "completed" else "yellow")
+        )
+
         steps = state.get("steps", [])
         step_count = len(steps)
         total_tokens = state.get("total_tokens", 0)
@@ -87,6 +105,7 @@ class LiveDashboard:
 
         header_text = (
             f"[bold]Session:[/bold] #{sid}  |  "
+            f"[bold]Status:[/bold] [{status_color}]{status}[/{status_color}]  |  "
             f"[bold]Server:[/bold] [green]{server}[/green]  |  "
             f"[bold]Transport:[/bold] [yellow]{transport}[/yellow]  |  "
             f"[bold]Steps:[/bold] [cyan]{step_count}[/cyan]  |  "
@@ -116,9 +135,9 @@ class LiveDashboard:
 
         def add_agent_node(parent: Any, agent: dict[str, Any]) -> None:
             aid = agent.get("id")
-            aname = agent.get("name", "Unknown")
-            role = agent.get("role")
-            fw = agent.get("framework")
+            aname = escape(str(agent.get("name", "Unknown")))
+            role = escape(str(agent["role"])) if agent.get("role") else None
+            fw = escape(str(agent["framework"])) if agent.get("framework") else None
 
             count = 0
             if aid in agent_step_counts:
@@ -162,8 +181,8 @@ class LiveDashboard:
         for s in recent_steps:
             s_idx = s.get("step_index", 0)
             step_str = f"#{s_idx}"
-            agent_str = str(s.get("agent_name") or "-")
-            type_str = str(s.get("step_type") or "-")
+            agent_str = escape(str(s.get("agent_name") or "-"))
+            type_str = escape(str(s.get("step_type") or "-"))
 
             raw_in = s.get("input")
             payload_str = "-"
@@ -196,6 +215,8 @@ class LiveDashboard:
                 else:
                     payload_str = str(parsed)[:35]
 
+            payload_escaped = escape(payload_str)
+
             lat = s.get("latency_ms")
             lat_str = f"{lat:.1f}ms" if lat is not None else "-"
 
@@ -214,7 +235,7 @@ class LiveDashboard:
                 ).cost_usd
             cost_str = f"${c_val:.4f}"
 
-            table.add_row(step_str, agent_str, type_str, payload_str, lat_str, cost_str)
+            table.add_row(step_str, agent_str, type_str, payload_escaped, lat_str, cost_str)
 
         if not recent_steps:
             table.add_row("-", "-", "-", "[dim]No steps recorded[/dim]", "-", "-")
@@ -222,10 +243,10 @@ class LiveDashboard:
         return Panel(table, title="[bold]Recent Trajectory Steps[/bold]", border_style="blue")
 
     def build_layout(self, state: dict[str, Any]) -> Layout:
-        """Split layout into header (size=3) and body (ratio=1) with agent tree and event table."""
+        """Split layout into header (size=4) and body (ratio=1) with agent tree and event table."""
         layout = Layout()
         layout.split(
-            Layout(name="header", size=3),
+            Layout(name="header", size=4),
             Layout(name="body", ratio=1),
         )
         layout["body"].split_row(
@@ -239,23 +260,26 @@ class LiveDashboard:
 
     async def render_once(self) -> None:
         """Fetch state once and render snapshot to console; exit(1) if session not found."""
-        state = await self.fetch_state()
-        if not state.get("session"):
-            self.console.print(f"[red]Error: Session {self.session_id} not found.[/red]")
-            sys.exit(1)
-        layout = self.build_layout(state)
-        self.console.print(layout)
+        try:
+            state = await self.fetch_state()
+            if not state.get("session"):
+                self.console.print(f"[red]Error: Session {self.session_id} not found.[/red]")
+                sys.exit(1)
+            layout = self.build_layout(state)
+            self.console.print(layout)
+        finally:
+            await self.close()
 
     async def run(self) -> None:
         """Start polling loop updating dashboard at refresh_rate seconds."""
-        state = await self.fetch_state()
-        if not state.get("session"):
-            self.console.print(f"[red]Error: Session {self.session_id} not found.[/red]")
-            sys.exit(1)
-        layout = self.build_layout(state)
-        refresh_per_sec = max(1, int(1.0 / self.refresh_rate))
         self._running = True
         try:
+            state = await self.fetch_state()
+            if not state.get("session"):
+                self.console.print(f"[red]Error: Session {self.session_id} not found.[/red]")
+                sys.exit(1)
+            layout = self.build_layout(state)
+            refresh_per_sec = max(1, int(1.0 / self.refresh_rate))
             with Live(layout, console=self.console, refresh_per_second=refresh_per_sec) as live:
                 while self._running:
                     await asyncio.sleep(self.refresh_rate)
@@ -272,3 +296,4 @@ class LiveDashboard:
             pass
         finally:
             self._running = False
+            await self.close()

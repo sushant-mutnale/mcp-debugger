@@ -255,11 +255,13 @@ class PostgresDatabase:
         limit: int | None = None,
         offset: int | None = None,
         status: str | None = None,
+        status_filter: str | None = None,
     ) -> list[dict[str, Any]]:
+        target_status = status_filter if status_filter is not None else status
         query = "SELECT * FROM sessions"
         params: list[Any] = []
-        if status:
-            params.append(status)
+        if target_status:
+            params.append(target_status)
             query += f" WHERE status = ${len(params)}"
         query += " ORDER BY id DESC"
         if limit is not None:
@@ -278,8 +280,11 @@ class PostgresDatabase:
         limit: int | None = None,
         offset: int | None = None,
         status: str | None = None,
+        status_filter: str | None = None,
     ) -> list[dict[str, Any]]:
-        return await self.get_sessions(limit=limit, offset=offset, status=status)
+        return await self.get_sessions(
+            limit=limit, offset=offset, status=status, status_filter=status_filter
+        )
 
     async def log_message(
         self,

@@ -2,9 +2,12 @@
 
 import asyncio
 import json
+import pytest
+from rich.console import Console
 from typer.testing import CliRunner
 
 from mcp_debugger.cli import app
+from mcp_debugger.live import LiveDashboard
 from mcp_debugger.storage.database import Database
 
 
@@ -47,6 +50,7 @@ def test_live_command_once_with_sample_session(mock_db_path: str, runner: CliRun
     assert ("Live Session Monitor" in result.stdout) or ("Live Monitor" in result.stdout)
     assert "Coordinator" in result.stdout
     assert "search_db" in result.stdout
+    assert "running" in result.stdout.lower()
 
 
 def test_live_command_missing_session(mock_db_path: str, runner: CliRunner) -> None:
@@ -92,8 +96,6 @@ def test_live_command_no_sessions_empty_db(mock_db_path: str, runner: CliRunner)
 
 def test_dashboard_unit_fetch_and_build(mock_db_path: str) -> None:
     """Unit test LiveDashboard components directly."""
-    from rich.console import Console
-    from mcp_debugger.live import LiveDashboard
 
     async def run_unit() -> None:
         db = Database(db_path=mock_db_path)
@@ -108,7 +110,7 @@ def test_dashboard_unit_fetch_and_build(mock_db_path: str) -> None:
             0,
             "llm_call",
             "LeadAgent",
-            "Prompt",
+            "Prompt [unclosed tag test]",
             "Response",
             agent_id=aid_parent,
             tokens_input=1000,
@@ -120,7 +122,7 @@ def test_dashboard_unit_fetch_and_build(mock_db_path: str) -> None:
             1,
             "tool_call",
             "WorkerAgent",
-            json.dumps({"name": "compute", "parameters": {"x": 10}}),
+            json.dumps({"name": "compute[brackets]", "parameters": {"x": 10}}),
             "42",
             agent_id=aid_child,
             tokens_input=200,
@@ -156,15 +158,13 @@ def test_dashboard_unit_fetch_and_build(mock_db_path: str) -> None:
         output = console.export_text()
         assert "LeadAgent" in output
         assert "WorkerAgent" in output
-        assert "compute" in output
+        assert "compute[brackets]" in output
 
     asyncio.run(run_unit())
 
 
 def test_dashboard_unit_empty_session(mock_db_path: str) -> None:
     """Unit test LiveDashboard components on a session with no agents or steps."""
-    from rich.console import Console
-    from mcp_debugger.live import LiveDashboard
 
     async def run_unit() -> None:
         db = Database(db_path=mock_db_path)
@@ -185,9 +185,6 @@ def test_dashboard_unit_empty_session(mock_db_path: str) -> None:
 
 def test_dashboard_unit_missing_session(mock_db_path: str) -> None:
     """Unit test LiveDashboard with missing session exits with 1."""
-    import pytest
-    from rich.console import Console
-    from mcp_debugger.live import LiveDashboard
 
     async def run_unit() -> None:
         console = Console(record=True)
@@ -201,8 +198,6 @@ def test_dashboard_unit_missing_session(mock_db_path: str) -> None:
 
 def test_dashboard_unit_run_loop(mock_db_path: str) -> None:
     """Unit test LiveDashboard run polling loop terminates cleanly."""
-    from rich.console import Console
-    from mcp_debugger.live import LiveDashboard
 
     async def run_unit() -> None:
         db = Database(db_path=mock_db_path)
@@ -219,4 +214,3 @@ def test_dashboard_unit_run_loop(mock_db_path: str) -> None:
         await task
 
     asyncio.run(run_unit())
-
