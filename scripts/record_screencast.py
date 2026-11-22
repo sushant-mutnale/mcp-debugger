@@ -25,7 +25,7 @@ except ImportError:
 def convert_mp4_to_gif(
     mp4_path: str | Path,
     gif_path: str | Path,
-    max_width: int = 800,
+    max_width: int = 860,
     fps: int = 12,
     speedup: float = 1.25,
 ) -> None:
@@ -40,9 +40,9 @@ def convert_mp4_to_gif(
     print(f"Reading video frames from {mp4_file}...")
     frames = []
     # Read all video frames
+    step_skip = max(1, round(speedup))
     for idx, frame in enumerate(iio.imiter(str(mp4_file))):
-        # Sample frames based on speedup factor
-        if int(idx * speedup) % int(speedup * 2) == 0 or idx % 2 == 0:
+        if idx % step_skip == 0:
             img = Image.fromarray(frame)
             if img.width > max_width:
                 aspect = img.height / img.width
@@ -86,9 +86,25 @@ async def seed_demo_database(db_path: str = "demo_multi_agent.db") -> None:
             server_name="filesystem-mcp",
         )
         await db.log_message(s2, "client_to_server", {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-        await db.log_message(s2, "server_to_client", {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "read_file"}, {"name": "write_file"}, {"name": "list_directory"}]}})
-        await db.log_message(s2, "client_to_server", {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "read_file", "arguments": {"path": "README.md"}}})
-        await db.log_message(s2, "server_to_client", {"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "Project Overview"}]}})
+        await db.log_message(
+            s2,
+            "server_to_client",
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"tools": [{"name": "read_file"}, {"name": "write_file"}, {"name": "list_directory"}]},
+            },
+        )
+        await db.log_message(
+            s2,
+            "client_to_server",
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "read_file", "arguments": {"path": "README.md"}}},
+        )
+        await db.log_message(
+            s2,
+            "server_to_client",
+            {"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "Project Overview"}]}},
+        )
 
         # Session 3: Production Query Diagnostic & Trace
         s3 = await db.create_session(
@@ -96,8 +112,16 @@ async def seed_demo_database(db_path: str = "demo_multi_agent.db") -> None:
             friendly_name="Production Query Diagnostic & Trace",
             server_name="postgres-mcp",
         )
-        await db.log_message(s3, "client_to_server", {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "query", "arguments": {"sql": "SELECT COUNT(*) FROM users"}}})
-        await db.log_message(s3, "server_to_client", {"jsonrpc": "2.0", "id": 1, "result": {"rows": [{"count": 142050}]}})
+        await db.log_message(
+            s3,
+            "client_to_server",
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "query", "arguments": {"sql": "SELECT COUNT(*) FROM users"}}},
+        )
+        await db.log_message(
+            s3,
+            "server_to_client",
+            {"jsonrpc": "2.0", "id": 1, "result": {"rows": [{"count": 142050}]}},
+        )
     finally:
         await db.close()
     print("Database seeding completed.")
