@@ -20,8 +20,9 @@ logger = logging.getLogger("mcp_debugger.storage")
 class Database:
     """Handles SQLite database interactions using aiosqlite."""
 
-    def __init__(self, db_path: str | None = None) -> None:
+    def __init__(self, db_path: str | None = None, database_url: str | None = None) -> None:
         """Initialize database file path and directory structure."""
+        self.database_url = database_url
         if db_path is None:
             db_path = os.environ.get("MCP_DEBUGGER_DATABASE_PATH")
 
