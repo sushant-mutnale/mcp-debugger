@@ -1576,3 +1576,18 @@ class Database:
         except Exception as e:
             logger.warning("Failed to save replay: %s", e)
             return -1
+
+    async def get_replays(self, session_id: int) -> list[dict[str, Any]]:
+        """Retrieve all recorded replay runs for a session."""
+        try:
+            conn = await self._get_conn()
+            async with conn.execute(
+                "SELECT * FROM replays WHERE source_session_id = ? ORDER BY id DESC",
+                (session_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                columns = [col[0] for col in cursor.description]
+                return [dict(zip(columns, row, strict=False)) for row in rows]
+        except Exception as e:
+            logger.warning("Failed to get replays: %s", e)
+            return []

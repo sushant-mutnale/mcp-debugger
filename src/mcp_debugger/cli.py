@@ -2763,6 +2763,364 @@ def agents(
     asyncio.run(_run())
 
 
+@app.command(name="ci")
+def ci(
+    session_identifiers: list[str] = typer.Argument(
+        ..., help="List of session IDs or database file paths to validate"
+    ),
+    strict: bool = typer.Option(
+        False, "--strict", help="Treat warnings as errors and exit with code 1"
+    ),
+    max_cost: float | None = typer.Option(
+        None, "--max-cost", help="Budget threshold in USD; warn if exceeded"
+    ),
+    max_latency: float | None = typer.Option(
+        None, "--max-latency", help="Latency threshold in ms; warn if exceeded"
+    ),
+    json_mode: bool = typer.Option(
+        False, "--json", help="Output machine-readable JSON summary"
+    ),
+) -> None:
+    """Run automated CI/CD compliance gates and replay regression checks across sessions."""
+    from mcp_debugger.protocol.validator import ProtocolValidator
+
+    async def _run() -> None:
+        validator = ProtocolValidator()
+        session_reports: list[dict[str, Any]] = []
+
+        for ident in session_identifiers:
+            target_sessions: list[tuple[Database, dict[str, Any]]] = []
+            ident_path = Path(ident)
+
+            if ident_path.is_file() or ident.endswith((".db", ".sqlite")):
+                db = Database(db_path=str(ident_path))
+                try:
+                    await db.connect()
+                    sess_list = await db.get_sessions()
+                    if not sess_list:
+                        session_reports.append({
+                            "identifier": ident,
+                            "session_id": None,
+                            "status": "FAILED",
+                            "error": f"No sessions found in database file {ident}",
+                            "protocol_passed": False,
+                            "protocol_errors": 0,
+                            "protocol_warnings": 0,
+                            "replay_passed": True,
+                            "replay_mismatches": 0,
+                            "execution_errors": 0,
+                            "max_latency_ms": 0.0,
+                            "cost_usd": 0.0,
+                            "warnings": [],
+                            "failures": [f"No sessions found in database file {ident}"],
+                        })
+                        continue
+                    for s in sess_list:
+                        target_sessions.append((db, s))
+                except Exception as e:
+                    session_reports.append({
+                        "identifier": ident,
+                        "session_id": None,
+                        "status": "FAILED",
+                        "error": f"Failed to read database file {ident}: {e}",
+                        "protocol_passed": False,
+                        "protocol_errors": 0,
+                        "protocol_warnings": 0,
+                        "replay_passed": True,
+                        "replay_mismatches": 0,
+                        "execution_errors": 0,
+                        "max_latency_ms": 0.0,
+                        "cost_usd": 0.0,
+                        "warnings": [],
+                        "failures": [f"Database read error: {e}"],
+                    })
+                    continue
+            else:
+                try:
+                    sid = int(ident)
+                except ValueError:
+                    session_reports.append({
+                        "identifier": ident,
+                        "session_id": None,
+                        "status": "FAILED",
+                        "error": f"Invalid session identifier or file path: {ident}",
+                        "protocol_passed": False,
+                        "protocol_errors": 0,
+                        "protocol_warnings": 0,
+                        "replay_passed": True,
+                        "replay_mismatches": 0,
+                        "execution_errors": 0,
+                        "max_latency_ms": 0.0,
+                        "cost_usd": 0.0,
+                        "warnings": [],
+                        "failures": [f"Invalid identifier: {ident}"],
+                    })
+                    continue
+
+                db = Database()
+                try:
+                    await db.connect()
+                    sess = await db.get_session(sid)
+                    if not sess:
+                        session_reports.append({
+                            "identifier": ident,
+                            "session_id": sid,
+                            "status": "FAILED",
+                            "error": f"Session #{sid} not found",
+                            "protocol_passed": False,
+                            "protocol_errors": 0,
+                            "protocol_warnings": 0,
+                            "replay_passed": True,
+                            "replay_mismatches": 0,
+                            "execution_errors": 0,
+                            "max_latency_ms": 0.0,
+                            "cost_usd": 0.0,
+                            "warnings": [],
+                            "failures": [f"Session #{sid} not found"],
+                        })
+                        await db.close()
+                        continue
+                    target_sessions.append((db, sess))
+                except Exception as e:
+                    session_reports.append({
+                        "identifier": ident,
+                        "session_id": sid,
+                        "status": "FAILED",
+                        "error": f"Database error: {e}",
+                        "protocol_passed": False,
+                        "protocol_errors": 0,
+                        "protocol_warnings": 0,
+                        "replay_passed": True,
+                        "replay_mismatches": 0,
+                        "execution_errors": 0,
+                        "max_latency_ms": 0.0,
+                        "cost_usd": 0.0,
+                        "warnings": [],
+                        "failures": [f"Database error: {e}"],
+                    })
+                    continue
+
+            # Validate target sessions
+            for s_db, session in target_sessions:
+                sid = session["id"]
+                failures: list[str] = []
+                warnings: list[str] = []
+
+                # 1. Protocol Validation
+                try:
+                    proto_results = await validator.validate_session(sid, s_db)
+                    crit_errors = [
+                        r for r in proto_results if not r.passed and r.severity == "critical"
+                    ]
+                    warn_errors = [
+                        r for r in proto_results if not r.passed and r.severity == "warning"
+                    ]
+                    for ce in crit_errors:
+                        failures.append(f"Protocol: {ce.rule_name} - {ce.message}")
+                    for we in warn_errors:
+                        warnings.append(f"Protocol: {we.rule_name} - {we.message}")
+                    proto_passed = len(crit_errors) == 0
+                    proto_err_count = len(crit_errors)
+                    proto_warn_count = len(warn_errors)
+                except Exception as e:
+                    proto_passed = False
+                    proto_err_count = 1
+                    proto_warn_count = 0
+                    failures.append(f"Protocol validation failed: {e}")
+
+                # 2. Replay Regressions
+                try:
+                    replays = await s_db.get_replays(sid)
+                    replay_mismatches = sum(r.get("mismatches", 0) for r in replays)
+                    if replay_mismatches > 0:
+                        failures.append(
+                            f"Replay regression: {replay_mismatches} mismatches detected"
+                        )
+                    replay_passed = replay_mismatches == 0
+                except Exception:
+                    replay_passed = True
+                    replay_mismatches = 0
+
+                # 3. Execution / Tool Failures
+                try:
+                    steps = await s_db.get_steps(sid)
+                    exec_errors = [s for s in steps if s.get("step_type") == "error"]
+                    for ee in exec_errors:
+                        failures.append(f"Step #{ee.get('step_index')}: execution error")
+                    exec_err_count = len(exec_errors)
+                except Exception:
+                    exec_err_count = 0
+                    steps = []
+
+                # 4. Latency
+                try:
+                    messages = await s_db.get_messages(sid)
+                    all_latencies = [
+                        m["latency_ms"]
+                        for m in messages
+                        if m.get("latency_ms") is not None
+                    ] + [
+                        s["latency_ms"]
+                        for s in steps
+                        if s.get("latency_ms") is not None
+                    ]
+                    max_lat = max(all_latencies) if all_latencies else 0.0
+                except Exception:
+                    max_lat = 0.0
+
+                if max_latency is not None and max_lat > max_latency:
+                    warnings.append(
+                        f"Latency threshold exceeded: {max_lat:.1f}ms > {max_latency:.1f}ms"
+                    )
+
+                # 5. Cost
+                tokens_in = sum(s.get("tokens_input") or 0 for s in steps)
+                tokens_out = sum(s.get("tokens_output") or 0 for s in steps)
+                cost_usd = (tokens_in * 3.0 + tokens_out * 15.0) / 1_000_000.0
+
+                if max_cost is not None and cost_usd > max_cost:
+                    warnings.append(
+                        f"Cost threshold exceeded: ${cost_usd:.4f} > ${max_cost:.4f}"
+                    )
+
+                # Gate status determination
+                if failures:
+                    status = "FAILED"
+                elif warnings and strict:
+                    status = "FAILED"
+                elif warnings:
+                    status = "PASSED (WARNINGS)"
+                else:
+                    status = "PASSED"
+
+                session_reports.append({
+                    "identifier": ident,
+                    "session_id": sid,
+                    "status": status,
+                    "protocol_passed": proto_passed,
+                    "protocol_errors": proto_err_count,
+                    "protocol_warnings": proto_warn_count,
+                    "replay_passed": replay_passed,
+                    "replay_mismatches": replay_mismatches,
+                    "execution_errors": exec_err_count,
+                    "max_latency_ms": round(max_lat, 2),
+                    "cost_usd": round(cost_usd, 4),
+                    "warnings": warnings,
+                    "failures": failures,
+                })
+
+                await s_db.close()
+
+        # Overall summary
+        any_failed = any(r["status"] == "FAILED" for r in session_reports)
+        gate_passed = not any_failed and len(session_reports) > 0
+        exit_code = 0 if gate_passed else 1
+
+        if json_mode:
+            payload = {
+                "gate_passed": gate_passed,
+                "exit_code": exit_code,
+                "strict": strict,
+                "summary": {
+                    "total_sessions": len(session_reports),
+                    "passed": sum(1 for r in session_reports if "PASSED" in r["status"]),
+                    "failed": sum(1 for r in session_reports if r["status"] == "FAILED"),
+                    "warnings": sum(len(r["warnings"]) for r in session_reports),
+                },
+                "sessions": session_reports,
+            }
+            console.print(json.dumps(payload, indent=2))
+            sys.exit(exit_code)
+
+        # Rich Table
+        table = Table(title="CI/CD Quality Gate Results", border_style="cyan")
+        table.add_column("Session", style="cyan bold")
+        table.add_column("Protocol", style="white")
+        table.add_column("Replay", style="white")
+        table.add_column("Latency / Cost", style="white")
+        table.add_column("Gate Result", justify="center")
+
+        for r in session_reports:
+            sid_str = (
+                f"#{r['session_id']}"
+                if r.get("session_id") is not None
+                else r["identifier"]
+            )
+
+            if r.get("error") and not r.get("protocol_passed"):
+                table.add_row(
+                    sid_str,
+                    "[red]ERROR[/red]",
+                    "-",
+                    "-",
+                    "[red bold]FAILED[/red bold]",
+                )
+                continue
+
+            proto_str = (
+                "[green]✓ PASS[/green]"
+                if r["protocol_passed"]
+                else f"[red]✗ {r['protocol_errors']} crit[/red]"
+            )
+            if r["protocol_warnings"] > 0:
+                proto_str += f" [yellow]({r['protocol_warnings']} warn)[/yellow]"
+
+            replay_str = (
+                "[green]✓ PASS[/green]"
+                if r["replay_passed"]
+                else f"[red]✗ {r['replay_mismatches']} diff[/red]"
+            )
+
+            metrics_str = f"{r['max_latency_ms']}ms / ${r['cost_usd']:.4f}"
+
+            if r["status"] == "PASSED":
+                res_str = "[green bold]PASSED[/green bold]"
+            elif r["status"] == "PASSED (WARNINGS)":
+                res_str = "[yellow bold]PASSED (WARN)[/yellow bold]"
+            else:
+                res_str = "[red bold]FAILED[/red bold]"
+
+            table.add_row(sid_str, proto_str, replay_str, metrics_str, res_str)
+
+        console.print(table)
+
+        # Print failures & warnings detail if any
+        all_fails = [f for r in session_reports for f in r["failures"]]
+        all_warns = [w for r in session_reports for w in r["warnings"]]
+
+        if all_fails:
+            console.print()
+            console.print("[bold red]Failures Detail:[/bold red]")
+            for f in all_fails:
+                console.print(f" [red]• {f}[/red]")
+
+        if all_warns:
+            console.print()
+            console.print("[bold yellow]Warnings Detail:[/bold yellow]")
+            for w in all_warns:
+                console.print(f" [yellow]• {w}[/yellow]")
+
+        console.print()
+        if gate_passed:
+            console.print(
+                Panel(
+                    "[bold green]✓ CI GATE PASSED[/bold green]",
+                    border_style="green",
+                )
+            )
+        else:
+            console.print(
+                Panel(
+                    "[bold red]✗ CI GATE FAILED[/bold red]",
+                    border_style="red",
+                )
+            )
+
+        sys.exit(exit_code)
+
+    asyncio.run(_run())
+
+
 def main() -> None:
     app()
 
