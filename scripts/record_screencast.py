@@ -39,18 +39,16 @@ def capture_tui_frame(db_path: str = "demo_multi_agent.db") -> Path:
     asyncio.run(dash.render_once())
     html_content = console.export_html(inline_styles=True)
 
-    tui_html = (
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        '<style>body { background: #16161e; margin: 0; padding: 40px; display: flex; '
-        'justify-content: center; align-items: center; min-height: 100vh; font-family: monospace; }</style>'
-        '</head><body>'
-        '<div style="box-shadow: 0 20px 50px rgba(0,0,0,0.6); border-radius: 12px; overflow: hidden; border: 1px solid #2f354a; background: #1a1b26; padding: 20px;">'
-        f"{html_content}"
-        "</div></body></html>"
+    # Style as dark Tokyo Night terminal window
+    html_content = html_content.replace(
+        "background-color: #ffffff;",
+        "background-color: #1a1b26; padding: 30px; font-family: monospace;",
     )
+    html_content = html_content.replace("color: #000000;", "color: #c0caf5;")
+
     tui_path = Path("scratch/live_tui.html")
     tui_path.parent.mkdir(parents=True, exist_ok=True)
-    tui_path.write_text(tui_html, encoding="utf-8")
+    tui_path.write_text(html_content, encoding="utf-8")
     return tui_path
 
 
