@@ -1773,12 +1773,17 @@ def export(
     format: str = typer.Option(
         "json",
         "--format",
-        help="Export format: json | markdown | otlp | sarif",
+        help="Export format: json | markdown | otlp | sarif | junit",
     ),
     sarif: str | None = typer.Option(
         None,
         "--sarif",
         help="Shortcut to export session as SARIF v2.1.0 to target file",
+    ),
+    junit: str | None = typer.Option(
+        None,
+        "--junit",
+        help="Shortcut to export session as JUnit XML to target file",
     ),
     output: str | None = typer.Option(
         None,
@@ -1832,9 +1837,11 @@ def export(
     fmt = effective_format.lower().strip()
     if sarif:
         fmt = "sarif"
-    if fmt not in {"json", "markdown", "otlp", "sarif"}:
+    if junit:
+        fmt = "junit"
+    if fmt not in {"json", "markdown", "otlp", "sarif", "junit"}:
         console.print(
-            f"[red]Error: unknown format '{effective_format}'. Choose json, markdown, otlp, or sarif.[/red]"
+            f"[red]Error: unknown format '{effective_format}'. Choose json, markdown, otlp, sarif, or junit.[/red]"
         )
         sys.exit(1)
 
@@ -1866,7 +1873,39 @@ def export(
         finally:
             await db.close()
 
-        effective_output = sarif if sarif else output
+        effective_output = output
+        if sarif:
+            effective_output = sarif
+        elif junit:
+            effective_output = junit
+
+        # ---- JUNIT ----------------------------------------------------------
+        if fmt == "junit":
+            from mcp_debugger.exporters.junit_exporter import JUnitExporter
+            from mcp_debugger.protocol.validator import ProtocolValidator
+
+            exporter_junit = JUnitExporter(pretty=effective_pretty)
+            db_j = Database()
+            await db_j.connect()
+            try:
+                validator = ProtocolValidator()
+                v_results = await validator.validate_session(session_id, db_j)
+                replays = await db_j.get_replays(session_id)
+            finally:
+                await db_j.close()
+
+            junit_xml = exporter_junit.generate_junit(
+                session=dict(session),
+                validation_results=v_results,
+                replay_mismatches=replays,
+                errors=errors,
+            )
+            if effective_output:
+                Path(effective_output).write_text(junit_xml, encoding="utf-8")
+                console.print(f"[green]Exported JUnit XML to {Path(effective_output).resolve()}[/green]")
+            else:
+                print(junit_xml)
+            return
 
         # ---- SARIF ----------------------------------------------------------
         if fmt == "sarif":
@@ -2830,6 +2869,9 @@ def ci(
     sarif: Path | None = typer.Option(
         None, "--sarif", help="Export CI quality gate findings as SARIF v2.1.0 to path"
     ),
+    junit: Path | None = typer.Option(
+        None, "--junit", help="Export CI findings as JUnit XML to path"
+    ),
 ) -> None:
     """Run automated CI/CD compliance gates and replay regression checks across sessions."""
     from mcp_debugger.protocol.validator import ProtocolValidator
@@ -3086,6 +3128,22 @@ def ci(
             )
             console.print(
                 f"[green]Exported CI findings as SARIF to {Path(sarif).resolve()}[/green]"
+            )
+
+        if junit:
+            from mcp_debugger.exporters.junit_exporter import JUnitExporter
+
+            exporter_junit = JUnitExporter(pretty=True)
+            first_sid = session_reports[0].get("session_id") if session_reports else 0
+            exporter_junit.export(
+                out=junit,
+                session={"id": first_sid} if first_sid else None,
+                validation_results=all_validation_results,
+                replay_mismatches=all_replay_mismatches,
+                warnings=all_warns,
+            )
+            console.print(
+                f"[green]Exported CI findings as JUnit XML to {Path(junit).resolve()}[/green]"
             )
 
         if json_mode:
