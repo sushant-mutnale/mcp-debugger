@@ -19,11 +19,16 @@
 | 🔍 **Record** | Capture every JSON-RPC message between an MCP client and server |
 | 📋 **Inspect** | Browse messages with syntax-highlighted, formatted terminal output |
 | 🌐 **Web UI** | Visual interface for managing and inspecting recorded MCP sessions in the browser |
+| 🎯 **Causal Attribution** | Pinpoint failure boundaries (`agent`, `tool`, `protocol`) and isolate Point-of-Commitment via counterfactual step ablation |
+| 🤖 **Multi-Agent Trees** | Relational hierarchy trees and inter-agent handoff tracking with context state diffs |
+| 🛡️ **CI/CD Quality Gates** | Automated test gates with deterministic exit codes, SARIF v2.1.0, and JUnit XML exporters |
+| 💰 **Cost Attribution** | Per-step and per-agent token/dollar accounting with anomaly and budget exceedance flags |
 | ✅ **Validate** | Check MCP protocol compliance — handshake order, method names, schemas |
 | 🔄 **Replay** | Regression-test server changes by replaying recorded sessions |
 | 📊 **Stats** | Visualise tool usage, latency trends, and error rates |
 | 🔀 **Compare** | Delta reports between two sessions (latency, errors, tool calls) |
-| 📤 **Export** | JSON, Markdown, or OpenTelemetry (OTLP) traces |
+| 📤 **Export** | JSON, Markdown, OpenTelemetry (OTLP), SARIF, or JUnit XML reports |
+| 🗄️ **Team Storage** | Zero-config local SQLite with optional PostgreSQL backend (`asyncpg`) |
 | ⚙️ **Config** | Persistent user preferences — aliases, timeouts, defaults |
 | 🩺 **Doctor** | Environment diagnostics — Python version, SQLite, Node.js, paths |
 | 🚀 **Local-first** | No cloud, no signup — all data stays on your machine |
@@ -36,10 +41,14 @@
 pip install mcp-debugger
 ```
 
-With optional OpenTelemetry (OTLP) export support:
+Optional extensions:
 
 ```bash
+# OpenTelemetry (OTLP) export
 pip install "mcp-debugger[otlp]"
+
+# PostgreSQL team storage backend
+pip install "mcp-debugger[postgres]"
 ```
 
 **Requirements:** Python 3.11+, Node.js (for `npx`-based MCP servers)
@@ -82,10 +91,37 @@ mcp-debugger validate --server "npx -y @modelcontextprotocol/server-filesystem /
 mcp-debugger replay 1 --server "npx -y @modelcontextprotocol/server-filesystem /tmp"
 ```
 
-### 6. Export to Markdown
-
+### 6. Export to Markdown, SARIF, or JUnit
 ```bash
 mcp-debugger export 1 --format markdown --output session-report.md
+mcp-debugger export 1 --sarif code-scanning.sarif
+```
+
+### 7. Inspect Multi-Agent Hierarchy & Handoffs
+```bash
+# Visual agent delegation tree
+mcp-debugger agents 1
+
+# Inter-agent handoffs table with state diffs
+mcp-debugger agents 1 --handoffs
+```
+
+### 8. Causal Failure Attribution
+```bash
+# Isolate Point-of-Commitment and root cause
+mcp-debugger attribute 1
+```
+
+### 9. Statistical Dashboard & Token Costs
+```bash
+# View tool usage, latency sparklines, and per-agent token costs
+mcp-debugger stats 1
+```
+
+### 10. Automated CI/CD Quality Gates
+```bash
+# Enforce compliance gates with budget thresholds and test reports
+mcp-debugger ci 1 --max-cost 2.50 --junit junit-report.xml
 ```
 
 ---

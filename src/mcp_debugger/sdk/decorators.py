@@ -74,6 +74,20 @@ async def _dispatch_record_step_async(
             )
             if inspect.iscoroutine(res):
                 await res
+        elif hasattr(backend, "log_step"):
+            res = backend.log_step(
+                session_id=session_id,
+                step_index=step_index,
+                step_type=step_type,
+                agent_name=agent_name,
+                input_data=input_data,
+                output_data=output_data,
+                latency_ms=latency_ms,
+                tokens_input=tokens_input,
+                tokens_output=tokens_output,
+            )
+            if inspect.iscoroutine(res):
+                await res
     except Exception:
         pass
 
@@ -96,6 +110,24 @@ def _dispatch_record_step(
     try:
         if hasattr(backend, "record_step"):
             res = backend.record_step(
+                session_id=session_id,
+                step_index=step_index,
+                step_type=step_type,
+                agent_name=agent_name,
+                input_data=input_data,
+                output_data=output_data,
+                latency_ms=latency_ms,
+                tokens_input=tokens_input,
+                tokens_output=tokens_output,
+            )
+            if inspect.iscoroutine(res):
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(res)
+                except RuntimeError:
+                    asyncio.run(res)
+        elif hasattr(backend, "log_step"):
+            res = backend.log_step(
                 session_id=session_id,
                 step_index=step_index,
                 step_type=step_type,

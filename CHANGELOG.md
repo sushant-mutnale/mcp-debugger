@@ -7,6 +7,46 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.0] — 2026-11-22
+
+Major release introducing Causal Failure Attribution, Multi-Agent Hierarchy & Handoff Tracking, Cassette-Backed Handoff Replay, Enterprise CI/CD Gates, Compliance Exporters (SARIF & JUnit XML), Token Cost Attribution, and PostgreSQL Team Storage.
+
+### Added
+
+#### Causal Failure Attribution & Step Ablation
+- `mcp-debugger attribute <session_id>`: isolate root cause step and Point-of-Commitment (PoC) using counterfactual step ablation.
+- `AblationEngine`: offline VCR cassette perturbation with empty results and tool errors.
+- `LiveCounterfactualEngine`: preflight cost estimator, live token sampling, and counterfactual branch re-execution.
+- `FailureClassifier`: heuristic rules classifying failure boundaries (`agent`, `tool`, `protocol`, `none`).
+
+#### Multi-Agent Hierarchy & Handoff Tracking
+- `mcp-debugger agents <session_id>`: visualize agent delegation hierarchy with interactive Rich trees (`--tree`), handoff transitions (`--handoffs`), and JSON export (`--json`).
+- Relational `agents` schema and `steps.agent_id` tracking foreign key hierarchy.
+- SDK context tracking: `@trace_handoff` and `trace_handoff_context` capturing context state diffs (`added`, `removed`, `modified`).
+- Multi-agent framework adapters: `CrewAITracker` / `trace_crewai`, `LangChainTracker` / `trace_langchain`, and `OpenAITracker` / `trace_openai`.
+
+#### Cassette-Backed Handoff Replay
+- `HandoffReplayEngine` (ADR 0003): re-execute downstream agents against static upstream execution history cassettes without non-deterministic divergence or re-execution cost.
+
+#### Enterprise CI/CD Quality Gates
+- `mcp-debugger ci <sessions...>`: tiered build gating across multiple session IDs or database files.
+- Deterministic exit codes: exit 1 on protocol schema violations, tool execution errors, and replay regressions; exit 0 with non-blocking latency/cost warnings unless `--strict` is enabled.
+- SARIF v2.1.0 exporter (`--sarif`): maps protocol violations, causal PoC findings, and replay regressions for native GitHub Code Scanning integration.
+- JUnit XML exporter (`--junit`): standard test report XML (`<testsuites>`, `<testsuite>`, `<testcase>`) for CI/CD runners (GitHub Actions, Jenkins, GitLab CI).
+
+#### Token & Cost Attribution Engine
+- `CostCalculator`: model pricing registry supporting GPT-4o, Claude 3.5 Sonnet, Gemini 1.5/2.0, DeepSeek V3/R1, and custom models.
+- Per-step token accounting and per-agent rollups with orchestrator/worker categorization and cost share percentages.
+- Automated anomaly detection for token spikes (>3x step average) and budget exceedance (`--max-cost`).
+- Integrated into `mcp-debugger stats` and `mcp-debugger ci`.
+
+#### Team Storage & PostgreSQL Backend
+- `PostgresDatabase` (ADR 0003): optional PostgreSQL backend using `asyncpg` with connection pooling.
+- Unified backend routing via `get_database()` supporting `MCP_DEBUGGER_DATABASE_URL` and `config.toml` with zero-config fallback to local SQLite.
+- Relational schemas for `sessions`, `messages`, `steps`, `agents`, `attributions`, `tools`, `errors`, and `replays`.
+
+---
+
 ## [0.1.1] — 2026-06-29
 
 ### Added

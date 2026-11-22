@@ -15,12 +15,15 @@ mcp-debugger <command> [OPTIONS]
 | [`inspect`](#inspect) | Browse messages from a recorded session |
 | [`tools`](#tools) | View discovered tools and schemas |
 | [`errors`](#errors) | List classified errors from a session |
-| [`stats`](#stats) | Statistical dashboard for a session |
+| [`stats`](#stats) | Statistical dashboard for a session and token cost attribution |
 | [`compare`](#compare) | Delta report between two sessions |
 | [`validate`](#validate) | Check MCP protocol compliance |
 | [`replay`](#replay) | Replay a session against a server |
+| [`attribute`](#attribute) | Causal failure attribution and Point-of-Commitment isolation |
+| [`agents`](#agents) | Multi-agent delegation trees and handoff tracking |
+| [`ci`](#ci) | Automated CI/CD compliance gates and build gating |
 | [`web`](#web) | Start the Web UI for managing and inspecting recorded sessions in the browser. |
-| [`export`](#export) | Export session to JSON / Markdown / OTLP |
+| [`export`](#export) | Export session to JSON / Markdown / OTLP / SARIF / JUnit |
 | [`config`](#config) | Manage user preferences |
 | [`doctor`](#doctor) | Environment diagnostics |
 | [`version`](#version) | Show installed version |
@@ -420,10 +423,10 @@ mcp-debugger replay 42 --server "node server.js" --save
 
 ## `export`
 
-Export a recorded session to JSON, Markdown, or OpenTelemetry (OTLP) traces.
+Export a recorded session to JSON, Markdown, OpenTelemetry (OTLP), SARIF v2.1.0, or JUnit XML.
 
 ```bash
-mcp-debugger export <session_id> --format {json,markdown,otlp} [OPTIONS]
+mcp-debugger export <session_id> --format {json,markdown,otlp,sarif,junit} [OPTIONS]
 ```
 
 ### Arguments
@@ -436,9 +439,11 @@ mcp-debugger export <session_id> --format {json,markdown,otlp} [OPTIONS]
 
 | Option | Applies to | Default | Description |
 |---|---|---|---|
-| `--format` | all | `json` | `json`, `markdown`, or `otlp` |
-| `--output` | json, markdown | `None` | Write to file instead of stdout |
-| `--pretty` | json, markdown | `False` | Pretty-print JSON / include headers |
+| `--format` | all | `json` | `json`, `markdown`, `otlp`, `sarif`, or `junit` |
+| `--sarif` | sarif | `None` | Shortcut to export session as SARIF v2.1.0 to target file |
+| `--junit` | junit | `None` | Shortcut to export session as JUnit XML to target file |
+| `--output` | json, markdown, sarif, junit | `None` | Write to file instead of stdout |
+| `--pretty` | json, markdown, sarif, junit | `False` | Pretty-print JSON / indent XML |
 | `--include-raw` | markdown | `False` | Add collapsible raw JSON blocks per message |
 | `--endpoint` | otlp | `http://localhost:4317` | OTLP collector endpoint |
 | `--insecure` | otlp | `False` | Disable TLS |
@@ -556,6 +561,104 @@ mcp-debugger doctor
 |---|---|
 | `0` | All checks passed |
 | `1` | One or more critical checks failed |
+
+---
+
+## `attribute`
+
+Analyze a failed session to classify the failure boundary (`agent`, `tool`, or `protocol`) and isolate the Point of Commitment (PoC) using counterfactual step ablation.
+
+```bash
+mcp-debugger attribute <session_id> [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Type | Default | Description |
+|---|---|---|---|---|
+| `session_id` | | `INTEGER` | required | The ID of the session to analyze |
+| `--perturbation` | `-p` | `TEXT` | `both` | Counterfactual perturbation mode: `empty_result`, `tool_error`, or `both` |
+| `--live` | | `flag` | `False` | Run live LLM counterfactual re-execution instead of VCR replay |
+| `--model` | | `TEXT` | `None` | LLM model for counterfactual execution |
+| `--json` | | `flag` | `False` | Output structured JSON diagnosis |
+| `--sarif` | | `PATH` | `None` | Export diagnosis as SARIF v2.1.0 to path |
+
+### Examples
+
+```bash
+# Run causal attribution on session 42
+mcp-debugger attribute 42
+
+# Export causal diagnosis as SARIF for GitHub Code Scanning
+mcp-debugger attribute 42 --sarif attribution.sarif
+```
+
+---
+
+## `agents`
+
+Inspect multi-agent hierarchy, delegation trees, and inter-agent handoffs with context state diffs.
+
+```bash
+mcp-debugger agents <session_id> [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Type | Default | Description |
+|---|---|---|---|---|
+| `session_id` | | `INTEGER` | required | The ID of the session to inspect |
+| `--tree` | | `flag` | `True` | Visual Rich tree of agent hierarchy (default) |
+| `--handoffs` | | `flag` | `False` | Filter view to inter-agent handoff transitions with diffs |
+| `--json` | | `flag` | `False` | Output structured hierarchy and delegation events as JSON |
+
+### Examples
+
+```bash
+# View interactive agent hierarchy tree
+mcp-debugger agents 1
+
+# View handoffs table with context state transitions
+mcp-debugger agents 1 --handoffs
+
+# Output hierarchy as JSON
+mcp-debugger agents 1 --json
+```
+
+---
+
+## `ci`
+
+Run automated CI/CD compliance gates, protocol checks, and replay regression verifications across multiple sessions or database files with tiered exit codes.
+
+```bash
+mcp-debugger ci <sessions...> [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Type | Default | Description |
+|---|---|---|---|---|
+| `sessions...` | | `LIST` | required | List of session IDs or `.db` file paths to validate |
+| `--strict` | | `flag` | `False` | Treat warnings (latency/budget anomalies) as failures (exit 1) |
+| `--max-cost` | | `FLOAT` | `None` | Budget threshold in USD; warn if exceeded |
+| `--max-latency` | | `FLOAT` | `None` | Latency threshold in ms; warn if exceeded |
+| `--sarif` | | `PATH` | `None` | Export findings as SARIF v2.1.0 to path |
+| `--junit` | | `PATH` | `None` | Export findings as standard JUnit XML to path |
+| `--json` | | `flag` | `False` | Output machine-readable JSON summary |
+
+### Examples
+
+```bash
+# Validate session 1 in CI
+mcp-debugger ci 1
+
+# Validate multiple databases with budget gating and JUnit export
+mcp-debugger ci session1.db session2.db --max-cost 2.50 --junit test-report.xml
+
+# Run with GitHub Code Scanning SARIF export and strict mode
+mcp-debugger ci 1 --strict --sarif results.sarif
+```
 
 ---
 

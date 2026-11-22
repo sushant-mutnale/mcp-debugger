@@ -17,4 +17,6 @@ __pycache__/
 *.tmp
 *.pid
 scratch/
+*.sarif
+*.xml
 
