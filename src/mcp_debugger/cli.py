@@ -1446,6 +1446,12 @@ def stats(
 
             try:
                 stats_data = await aggregate_session_stats(db, session_id)
+                steps = await db.get_steps(session_id)
+                agents = await db.get_agents(session_id)
+                from mcp_debugger.attribution.cost import CostCalculator
+
+                cost_calc = CostCalculator()
+                cost_report = cost_calc.compute_session_costs(session_id, steps, agents)
             except ValueError as e:
                 console.print(f"[red]Error: {e}[/red]")
                 sys.exit(1)
@@ -1457,7 +1463,9 @@ def stats(
 
         # Handle --json mode
         if json_mode:
-            stats_json = stats_data.model_dump_json(indent=2)
+            stats_dict = stats_data.model_dump()
+            stats_dict["token_costs"] = cost_report.to_dict()
+            stats_json = json.dumps(stats_dict, indent=2)
             print(stats_json)
             if output:
                 try:
@@ -1582,6 +1590,39 @@ def stats(
             err_spark = generate_sparkline([float(x) for x in stats_data.error_trend], width=30)
             total_err = sum(stats_data.errors_by_category.values())
             console.print(f"{err_spark} ({total_err} total errors)")
+
+        # Token & Cost Attribution
+        if cost_report.total_tokens > 0 or cost_report.agent_costs:
+            console.print("\n💰 [bold]Token & Cost Attribution[/bold]")
+            console.print(
+                f"Total Cost: [green]${cost_report.total_cost_usd:.4f}[/green] | "
+                f"Total Tokens: {cost_report.total_tokens:,} "
+                f"({cost_report.total_tokens_input:,} in, {cost_report.total_tokens_output:,} out)"
+            )
+            if cost_report.agent_costs:
+                cost_table = Table(border_style="cyan")
+                cost_table.add_column("Agent", style="bold")
+                cost_table.add_column("Role")
+                cost_table.add_column("Steps", justify="right")
+                cost_table.add_column("Tokens (In / Out)", justify="right")
+                cost_table.add_column("Cost (USD)", justify="right", style="green")
+                cost_table.add_column("Share", justify="right")
+
+                for ag in cost_report.agent_costs:
+                    role_str = f"[{'yellow' if ag.is_orchestrator else 'dim'}]{ag.role or ('Orchestrator' if ag.is_orchestrator else 'Worker')}[/]"
+                    cost_table.add_row(
+                        ag.agent_name,
+                        role_str,
+                        str(ag.total_steps),
+                        f"{ag.tokens_input:,} / {ag.tokens_output:,}",
+                        f"${ag.total_cost_usd:.4f}",
+                        f"{ag.cost_percentage:.1f}%",
+                    )
+                console.print(cost_table)
+
+            if cost_report.anomalies:
+                for anom in cost_report.anomalies:
+                    console.print(f"[yellow]⚠️  {anom}[/yellow]")
 
     try:
         asyncio.run(_run())
@@ -3070,14 +3111,22 @@ def ci(
                     )
 
                 # 5. Cost
-                tokens_in = sum(s.get("tokens_input") or 0 for s in steps)
-                tokens_out = sum(s.get("tokens_output") or 0 for s in steps)
-                cost_usd = (tokens_in * 3.0 + tokens_out * 15.0) / 1_000_000.0
+                from mcp_debugger.attribution.cost import CostCalculator
 
-                if max_cost is not None and cost_usd > max_cost:
+                cost_calc = CostCalculator()
+                s_agents = await s_db.get_agents(sid)
+                cost_report = cost_calc.compute_session_costs(
+                    sid, steps, s_agents, max_budget=max_cost
+                )
+                cost_usd = cost_report.total_cost_usd
+
+                if max_cost is not None and cost_report.budget_exceeded:
                     warnings.append(
-                        f"Cost threshold exceeded: ${cost_usd:.4f} > ${max_cost:.4f}"
+                        f"Budget threshold exceeded: ${cost_usd:.4f} > ${max_cost:.4f}"
                     )
+                for anom in cost_report.anomalies:
+                    if "budget" not in anom.lower():
+                        warnings.append(f"Cost anomaly: {anom}")
 
                 # Gate status determination
                 if failures:
