@@ -28,6 +28,8 @@
   const tabPanels      = document.querySelectorAll(".tab-panel");
   const toolsList      = document.getElementById("toolsList");
   const errorsList     = document.getElementById("errorsList");
+  const agentCanvas    = document.getElementById("agentCanvas");
+  const handoffList    = document.getElementById("handoffList");
   const deleteBtn      = document.getElementById("deleteBtn");
   const deleteModal    = document.getElementById("deleteModal");
   const confirmDeleteBtn = document.getElementById("confirmDeleteBtn");
@@ -81,6 +83,9 @@
       btn.classList.add("active");
       const panel = document.getElementById(`tab-${target}`);
       if (panel) panel.classList.remove("hidden");
+      if (target === "agents" && SESSION_ID) {
+        loadAgentsTab(SESSION_ID);
+      }
     });
   });
 
@@ -190,6 +195,159 @@
           <span class="text-xs text-gray-400">${formatDate(e.classified_at)}</span>
         </div>
         <div class="text-sm text-red-300 font-mono mt-1">${escHtml(e.message || "")}</div>
+      </div>
+    `).join("");
+  }
+
+  // ── Multi-Agent Flow & Topology ──────────────────────────────
+  let agentsDataCache = null;
+  let selectedAgentFilter = null;
+
+  async function loadAgentsTab(sessionId) {
+    if (!agentCanvas || !handoffList) return;
+    agentCanvas.innerHTML = `<p class="text-gray-500 text-sm">Loading agents…</p>`;
+    handoffList.innerHTML = `<p class="text-gray-500 text-sm">Loading handoffs…</p>`;
+
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/agents`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      agentsDataCache = data;
+      renderAgentsView(data);
+    } catch (err) {
+      console.error("Failed to load agents:", err);
+      agentCanvas.innerHTML = `<p class="text-red-400 text-sm">Failed to load agent topology.</p>`;
+      handoffList.innerHTML = `<p class="text-red-400 text-sm">Failed to load handoffs.</p>`;
+    }
+  }
+
+  function renderAgentsView(data) {
+    const agents = data.agents || [];
+    const stats = data.agent_stats || {};
+    const handoffs = data.handoffs || [];
+
+    if (agents.length === 0) {
+      agentCanvas.innerHTML = `
+        <div class="col-span-full bg-[#1f2335] border border-[#292e42] rounded-xl p-8 text-center">
+          <div class="text-3xl mb-2">🤖</div>
+          <p class="text-gray-400 text-sm font-medium">No multi-agent activity recorded for this session.</p>
+        </div>`;
+      handoffList.innerHTML = `
+        <div class="bg-[#1f2335] border border-[#292e42] rounded-xl p-6 text-center">
+          <p class="text-gray-500 text-sm">No handoffs recorded.</p>
+        </div>`;
+      return;
+    }
+
+    renderAgentCards(agents, stats);
+    renderHandoffs(handoffs);
+  }
+
+  function renderAgentCards(agents, stats) {
+    if (!agentCanvas) return;
+
+    agentCanvas.innerHTML = agents.map((agent) => {
+      const aStats = stats[agent.name] || { steps: 0, tokens: 0, cost: 0.0, latency_sum: 0.0 };
+      const isSelected = selectedAgentFilter === agent.name;
+      const costBadge = `$${Number(aStats.cost || 0).toFixed(4)}`;
+      const activeBorder = isSelected
+        ? "border-[#7aa2f7] bg-[#24283b] ring-2 ring-[#7aa2f7]/50"
+        : "border-[#292e42] bg-[#1f2335] hover:border-[#414868]";
+
+      return `
+        <div class="agent-card rounded-xl p-5 border transition-all duration-150 cursor-pointer shadow-md ${activeBorder}"
+             data-agent-name="${escHtml(agent.name)}">
+          <div class="flex items-start justify-between gap-2 mb-3">
+            <div class="min-w-0">
+              <h4 class="font-bold text-white text-base truncate">${escHtml(agent.name)}</h4>
+              <div class="flex items-center gap-1.5 flex-wrap mt-1">
+                <span class="badge" style="background-color: rgba(122, 162, 247, 0.15); color: #7aa2f7; border-color: rgba(122, 162, 247, 0.3);">
+                  ${escHtml(agent.role || "agent")}
+                </span>
+                ${agent.framework ? `
+                  <span class="badge" style="background-color: rgba(187, 154, 247, 0.15); color: #bb9af7; border-color: rgba(187, 154, 247, 0.3);">
+                    ${escHtml(agent.framework)}
+                  </span>
+                ` : ""}
+              </div>
+            </div>
+            <span class="badge" style="background-color: rgba(158, 206, 106, 0.15); color: #9ece6a; border-color: rgba(158, 206, 106, 0.3);">
+              ${costBadge}
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 text-xs pt-3 border-t border-[#292e42]/60 text-gray-400">
+            <div>
+              <span class="text-gray-500 block">Steps:</span>
+              <span class="text-gray-200 font-semibold">${aStats.steps ?? 0}</span>
+            </div>
+            <div>
+              <span class="text-gray-500 block">Tokens:</span>
+              <span class="text-gray-200 font-semibold">${Number(aStats.tokens ?? 0).toLocaleString()}</span>
+            </div>
+            <div class="col-span-2 mt-1 flex justify-between items-center text-[11px] text-gray-500">
+              <span>Latency: ${aStats.latency_sum ? `${Number(aStats.latency_sum).toFixed(1)}ms` : "—"}</span>
+              <span class="text-[#7aa2f7] hover:underline">${isSelected ? "✕ Clear filter" : "Filter handoffs →"}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    agentCanvas.querySelectorAll(".agent-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        const name = card.dataset.agentName;
+        if (selectedAgentFilter === name) {
+          selectedAgentFilter = null;
+        } else {
+          selectedAgentFilter = name;
+        }
+        if (agentsDataCache) {
+          renderAgentCards(agentsDataCache.agents || [], agentsDataCache.agent_stats || {});
+          renderHandoffs(agentsDataCache.handoffs || []);
+        }
+      });
+    });
+  }
+
+  function renderHandoffs(handoffs) {
+    if (!handoffList) return;
+
+    let filtered = handoffs;
+    if (selectedAgentFilter) {
+      filtered = handoffs.filter(
+        (h) => h.from_agent === selectedAgentFilter || h.to_agent === selectedAgentFilter
+      );
+    }
+
+    if (filtered.length === 0) {
+      handoffList.innerHTML = `
+        <div class="bg-[#1f2335] border border-[#292e42] rounded-xl p-6 text-center">
+          <p class="text-gray-500 text-sm">
+            ${selectedAgentFilter ? `No handoffs recorded involving ${escHtml(selectedAgentFilter)}.` : "No handoff transitions recorded."}
+          </p>
+        </div>`;
+      return;
+    }
+
+    handoffList.innerHTML = filtered.map((h) => `
+      <div class="bg-[#1f2335] border border-[#292e42] hover:border-[#414868] rounded-xl p-4 transition-colors">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+          <div class="flex items-center gap-2 font-mono text-sm">
+            <span class="font-semibold text-[#7aa2f7] px-2 py-0.5 rounded bg-[#7aa2f7]/10">${escHtml(h.from_agent)}</span>
+            <span class="text-gray-500">➔</span>
+            <span class="font-semibold text-[#9ece6a] px-2 py-0.5 rounded bg-[#9ece6a]/10">${escHtml(h.to_agent)}</span>
+          </div>
+          <div class="flex items-center gap-3 text-xs">
+            ${h.latency_ms != null ? `
+              <span class="text-gray-400 font-mono">⏱ ${Number(h.latency_ms).toFixed(1)}ms</span>
+            ` : ""}
+            <span class="text-gray-500">Step #${h.step_index ?? 0}</span>
+          </div>
+        </div>
+        <div class="text-xs text-gray-300 bg-[#16161e] border border-[#292e42]/50 rounded-lg p-2.5 font-mono break-words">
+          <span class="text-gray-500 select-none">Task: </span>${escHtml(h.task || "Delegated task")}
+        </div>
       </div>
     `).join("");
   }

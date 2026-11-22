@@ -1,5 +1,6 @@
 """FastAPI web application for the MCP Debugger Web UI."""
 
+import json
 import math
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -12,6 +13,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from mcp_debugger.attribution.cost import CostCalculator
 from mcp_debugger.storage.database import Database
 
 # Global database instance
@@ -167,6 +169,101 @@ async def api_get_messages(
         offset=offset,
     )
     return messages
+
+
+@app.get("/api/sessions/{session_id}/agents")
+async def api_get_session_agents(session_id: int) -> dict[str, Any]:
+    """Return multi-agent hierarchy, handoffs, and performance statistics for a session."""
+    db_conn = get_db()
+    session = await db_conn.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    agents = await db_conn.get_agents(session_id)
+    hierarchy = await db_conn.get_agent_hierarchy(session_id)
+    steps = await db_conn.get_steps(session_id)
+
+    agent_id_to_name: dict[int, str] = {
+        a["id"]: a["name"] for a in agents if a.get("id") is not None and a.get("name")
+    }
+
+    agent_stats: dict[str, dict[str, Any]] = {
+        a["name"]: {"steps": 0, "tokens": 0, "cost": 0.0, "latency_sum": 0.0}
+        for a in agents
+        if a.get("name")
+    }
+
+    cost_calculator = CostCalculator()
+    handoffs: list[dict[str, Any]] = []
+
+    for s in steps:
+        agent_name = s.get("agent_name")
+        if not agent_name and s.get("agent_id") in agent_id_to_name:
+            agent_name = agent_id_to_name[s["agent_id"]]
+
+        tokens_in = s.get("tokens_input") or 0
+        tokens_out = s.get("tokens_output") or 0
+        lat = s.get("latency_ms")
+
+        if agent_name:
+            if agent_name not in agent_stats:
+                agent_stats[agent_name] = {"steps": 0, "tokens": 0, "cost": 0.0, "latency_sum": 0.0}
+
+            agent_stats[agent_name]["steps"] += 1
+            agent_stats[agent_name]["tokens"] += tokens_in + tokens_out
+            if lat is not None:
+                agent_stats[agent_name]["latency_sum"] = round(
+                    agent_stats[agent_name]["latency_sum"] + float(lat), 3
+                )
+
+            model = cost_calculator.extract_model_from_step(s)
+            sc = cost_calculator.compute_step_cost(
+                model=model,
+                tokens_input=tokens_in,
+                tokens_output=tokens_out,
+                step_index=s.get("step_index", 0),
+                agent_id=s.get("agent_id"),
+                agent_name=agent_name,
+                step_type=s.get("step_type", "llm_call"),
+            )
+            agent_stats[agent_name]["cost"] = round(
+                agent_stats[agent_name]["cost"] + sc.cost_usd, 6
+            )
+
+        if s.get("step_type") == "handoff":
+            raw_in = s.get("input") or s.get("input_data")
+            in_payload: dict[str, Any] = {}
+            if isinstance(raw_in, str):
+                try:
+                    in_payload = json.loads(raw_in)
+                except Exception:
+                    in_payload = {}
+            elif isinstance(raw_in, dict):
+                in_payload = raw_in
+
+            from_agent = in_payload.get("from_agent") or s.get("agent_name") or "unknown"
+            to_agent = in_payload.get("to_agent") or "unknown"
+            task = in_payload.get("task") or ""
+            latency_ms = s.get("latency_ms")
+            if latency_ms is None and "latency_ms" in in_payload:
+                latency_ms = in_payload.get("latency_ms")
+
+            handoffs.append({
+                "step_index": s.get("step_index", 0),
+                "from_agent": from_agent,
+                "to_agent": to_agent,
+                "task": task,
+                "latency_ms": latency_ms,
+                "created_at": s.get("created_at"),
+            })
+
+    return {
+        "session_id": session_id,
+        "agents": agents,
+        "hierarchy": hierarchy,
+        "handoffs": handoffs,
+        "agent_stats": agent_stats,
+    }
 
 
 @app.delete("/api/sessions/{session_id}", status_code=204)
