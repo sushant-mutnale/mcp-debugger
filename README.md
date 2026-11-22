@@ -18,7 +18,8 @@
 |---|---|
 | 🔍 **Record** | Capture every JSON-RPC message between an MCP client and server |
 | 📋 **Inspect** | Browse messages with syntax-highlighted, formatted terminal output |
-| 🌐 **Web UI** | Visual interface for managing and inspecting recorded MCP sessions in the browser |
+| ⚡ **Live Dashboard** | Real-time terminal TUI (`mcp-debugger live`) monitoring streaming sessions and agent trees |
+| 🌐 **Web UI** | Visual interface with interactive Multi-Agent Flow graph, handoff inspect cards, and session explorer |
 | 🎯 **Causal Attribution** | Pinpoint failure boundaries (`agent`, `tool`, `protocol`) and isolate Point-of-Commitment via counterfactual step ablation |
 | 🤖 **Multi-Agent Trees** | Relational hierarchy trees and inter-agent handoff tracking with context state diffs |
 | 🛡️ **CI/CD Quality Gates** | Automated test gates with deterministic exit codes, SARIF v2.1.0, and JUnit XML exporters |
@@ -122,6 +123,12 @@ mcp-debugger stats 1
 ```bash
 # Enforce compliance gates with budget thresholds and test reports
 mcp-debugger ci 1 --max-cost 2.50 --junit junit-report.xml
+```
+
+### 11. Real-Time Terminal TUI Dashboard
+```bash
+# Live multi-pane monitor: agent execution hierarchy, streaming events, and token costs
+mcp-debugger live
 ```
 
 ---

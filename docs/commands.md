@@ -22,6 +22,7 @@ mcp-debugger <command> [OPTIONS]
 | [`attribute`](#attribute) | Causal failure attribution and Point-of-Commitment isolation |
 | [`agents`](#agents) | Multi-agent delegation trees and handoff tracking |
 | [`ci`](#ci) | Automated CI/CD compliance gates and build gating |
+| [`live`](#live) | Real-time terminal TUI dashboard for active session monitoring |
 | [`web`](#web) | Start the Web UI for managing and inspecting recorded sessions in the browser. |
 | [`export`](#export) | Export session to JSON / Markdown / OTLP / SARIF / JUnit |
 | [`config`](#config) | Manage user preferences |
@@ -658,6 +659,36 @@ mcp-debugger ci session1.db session2.db --max-cost 2.50 --junit test-report.xml
 
 # Run with GitHub Code Scanning SARIF export and strict mode
 mcp-debugger ci 1 --strict --sarif results.sarif
+```
+
+---
+
+## `live`
+
+Launch the real-time terminal TUI dashboard to monitor active session trajectory, agent execution hierarchy, and token costs in real-time.
+
+```bash
+mcp-debugger live [SESSION_ID] [OPTIONS]
+```
+
+### Options
+
+| Option | Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `--refresh` | `-r` | FLOAT | `1.0` | Dashboard polling refresh interval in seconds |
+| `--once` | | FLAG | `false` | Render a single snapshot and exit immediately |
+
+### Examples
+
+```bash
+# Monitor the most recent session in real-time
+mcp-debugger live
+
+# Monitor a specific session with 0.5s refresh interval
+mcp-debugger live 1 --refresh 0.5
+
+# Non-interactive single snapshot (useful for scripting and CI)
+mcp-debugger live 1 --once
 ```
 
 ---
