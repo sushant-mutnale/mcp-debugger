@@ -1402,8 +1402,8 @@ class Database:
             ) as cursor:
                 err_row = await cursor.fetchone()
 
-            total_messages = int(msg_row["total_messages"]) if msg_row else 0
-            total_errors = int(err_row["total_errors"]) if err_row else 0
+            total_messages = int(msg_row["total_messages"] or 0) if msg_row else 0
+            total_errors = int(err_row["total_errors"] or 0) if err_row else 0
             error_rate = round(total_errors / total_messages * 100, 1) if total_messages else 0.0
 
             def _round_or_none(val: Any) -> float | None:
@@ -1411,10 +1411,10 @@ class Database:
 
             return {
                 "total_messages": total_messages,
-                "client_to_server": int(msg_row["client_to_server"]) if msg_row else 0,
-                "server_to_client": int(msg_row["server_to_client"]) if msg_row else 0,
-                "tools_discovered": int(tools_row["tools_discovered"]) if tools_row else 0,
-                "tools_called": int(calls_row["tools_called"]) if calls_row else 0,
+                "client_to_server": int(msg_row["client_to_server"] or 0) if msg_row else 0,
+                "server_to_client": int(msg_row["server_to_client"] or 0) if msg_row else 0,
+                "tools_discovered": int(tools_row["tools_discovered"] or 0) if tools_row else 0,
+                "tools_called": int(calls_row["tools_called"] or 0) if calls_row else 0,
                 "total_errors": total_errors,
                 "error_rate": error_rate,
                 "avg_latency_ms": _round_or_none(msg_row["avg_latency_ms"] if msg_row else None),

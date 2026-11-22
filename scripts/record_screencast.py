@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
+import shutil
 import time
 from pathlib import Path
 
@@ -28,8 +30,34 @@ from rich.console import Console
 
 from mcp_debugger.live import LiveDashboard
 
-CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 FRAMES_DIR = Path("scratch/playwright_frames")
+
+
+def get_chrome_executable() -> str | None:
+    """Find system Google Chrome executable or return None to use Playwright's Chromium."""
+    candidates = [
+        # Windows
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        # Linux
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        # macOS
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return candidate
+
+    for binary in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"):
+        found = shutil.which(binary)
+        if found:
+            return found
+
+    return None
 
 
 def capture_tui_frame(db_path: str = "demo_multi_agent.db") -> Path:
@@ -57,69 +85,85 @@ def run_screencast_capture(server_url: str = "http://127.0.0.1:8080") -> None:
     if sync_playwright is None:
         raise RuntimeError("playwright is required for screencast capture.")
 
+    db_file = Path("demo_multi_agent.db")
+    if not db_file.exists():
+        print(f"{db_file} not found. Auto-seeding demo database...")
+        asyncio.run(seed_demo_database(str(db_file)))
+
     FRAMES_DIR.mkdir(parents=True, exist_ok=True)
     tui_path = capture_tui_frame()
 
     captured_frames: list[tuple[Path, int]] = []
 
+    chrome_exec = get_chrome_executable()
+    launch_kwargs: dict = {"headless": True}
+    if chrome_exec:
+        launch_kwargs["executable_path"] = chrome_exec
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=CHROME_PATH, headless=True)
-        context = browser.new_context(viewport={"width": 1280, "height": 720})
-        page = context.new_page()
+        try:
+            browser = p.chromium.launch(**launch_kwargs)
+        except Exception as e:
+            print(f"Failed to launch Chrome with {chrome_exec} ({e}), falling back to Playwright chromium...")
+            browser = p.chromium.launch(headless=True)
 
-        # 1. Sessions List Overview
-        page.goto(f"{server_url}/")
-        page.wait_for_selector("tbody tr", timeout=5000)
-        time.sleep(1.0)
-        f1 = FRAMES_DIR / "01_sessions_overview.png"
-        page.screenshot(path=str(f1))
-        captured_frames.append((f1, 2000))
+        try:
+            context = browser.new_context(viewport={"width": 1280, "height": 720})
+            page = context.new_page()
 
-        # 2. Navigate to Session #1 Detail
-        page.goto(f"{server_url}/session/1")
-        page.wait_for_selector("#headerName", timeout=5000)
-        time.sleep(1.0)
-        f2 = FRAMES_DIR / "02_session_detail_overview.png"
-        page.screenshot(path=str(f2))
-        captured_frames.append((f2, 2000))
+            # 1. Sessions List Overview
+            page.goto(f"{server_url}/")
+            page.wait_for_selector("tbody tr", timeout=5000)
+            time.sleep(1.0)
+            f1 = FRAMES_DIR / "01_sessions_overview.png"
+            page.screenshot(path=str(f1))
+            captured_frames.append((f1, 2000))
 
-        # 3. Click Tools tab
-        page.click('button[data-tab="tools"]')
-        time.sleep(1.0)
-        f3 = FRAMES_DIR / "03_tools_inspection.png"
-        page.screenshot(path=str(f3))
-        captured_frames.append((f3, 1800))
+            # 2. Navigate to Session #1 Detail
+            page.goto(f"{server_url}/session/1")
+            page.wait_for_selector("#headerName", timeout=5000)
+            time.sleep(1.0)
+            f2 = FRAMES_DIR / "02_session_detail_overview.png"
+            page.screenshot(path=str(f2))
+            captured_frames.append((f2, 2000))
 
-        # 4. Click Multi-Agent Flow tab
-        page.click('button[data-tab="agents"]')
-        page.wait_for_selector(".agent-card", timeout=5000)
-        time.sleep(1.2)
-        f4 = FRAMES_DIR / "04_agent_flow_topology.png"
-        page.screenshot(path=str(f4))
-        captured_frames.append((f4, 2500))
+            # 3. Click Tools tab
+            page.click('button[data-tab="tools"]')
+            time.sleep(1.0)
+            f3 = FRAMES_DIR / "03_tools_inspection.png"
+            page.screenshot(path=str(f3))
+            captured_frames.append((f3, 1800))
 
-        # 5. Filter to SecurityResearcher
-        page.click('.agent-card[data-agent-name="SecurityResearcher"]')
-        time.sleep(1.0)
-        f5 = FRAMES_DIR / "05_filter_security_researcher.png"
-        page.screenshot(path=str(f5))
-        captured_frames.append((f5, 2200))
+            # 4. Click Multi-Agent Flow tab
+            page.click('button[data-tab="agents"]')
+            page.wait_for_selector(".agent-card", timeout=5000)
+            time.sleep(1.2)
+            f4 = FRAMES_DIR / "04_agent_flow_topology.png"
+            page.screenshot(path=str(f4))
+            captured_frames.append((f4, 2500))
 
-        # 6. Filter to PatchGenerator
-        page.click('.agent-card[data-agent-name="PatchGenerator"]')
-        time.sleep(1.0)
-        f6 = FRAMES_DIR / "06_filter_patch_generator.png"
-        page.screenshot(path=str(f6))
-        captured_frames.append((f6, 2200))
+            # 5. Filter to SecurityResearcher
+            page.click('.agent-card[data-agent-name="SecurityResearcher"]')
+            time.sleep(1.0)
+            f5 = FRAMES_DIR / "05_filter_security_researcher.png"
+            page.screenshot(path=str(f5))
+            captured_frames.append((f5, 2200))
 
-        # 7. Render Terminal TUI Dashboard
-        page.goto(tui_path.resolve().as_uri())
-        time.sleep(0.8)
-        f7 = FRAMES_DIR / "07_terminal_tui_dashboard.png"
-        page.screenshot(path=str(f7))
-        captured_frames.append((f7, 2500))
+            # 6. Filter to PatchGenerator
+            page.click('.agent-card[data-agent-name="PatchGenerator"]')
+            time.sleep(1.0)
+            f6 = FRAMES_DIR / "06_filter_patch_generator.png"
+            page.screenshot(path=str(f6))
+            captured_frames.append((f6, 2200))
 
-        browser.close()
+            # 7. Render Terminal TUI Dashboard
+            page.goto(tui_path.resolve().as_uri())
+            time.sleep(0.8)
+            f7 = FRAMES_DIR / "07_terminal_tui_dashboard.png"
+            page.screenshot(path=str(f7))
+            captured_frames.append((f7, 2500))
+        finally:
+            browser.close()
 
     assemble_media_assets(captured_frames)
 
@@ -136,20 +180,21 @@ def assemble_media_assets(scenes: list[tuple[Path, int]]) -> None:
     video_frames_rgb = []
 
     for path, duration_ms in scenes:
-        img = Image.open(path).convert("RGB")
-        aspect = img.height / img.width
-        target_height = int(target_width * aspect)
-        target_height = (target_height // 16) * 16
-        img_resized = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        with Image.open(path) as raw_img:
+            img = raw_img.convert("RGB")
+            aspect = img.height / img.width
+            target_height = int(target_width * aspect)
+            target_height = (target_height // 16) * 16
+            img_resized = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
-        q_frame = img_resized.quantize(colors=128, method=Image.Quantize.MEDIANCUT)
-        gif_frames.append(q_frame)
-        durations.append(duration_ms)
+            q_frame = img_resized.quantize(colors=128, method=Image.Quantize.MEDIANCUT)
+            gif_frames.append(q_frame)
+            durations.append(duration_ms)
 
-        ticks = int((duration_ms / 1000.0) * fps)
-        frame_np = np.array(img_resized)
-        for _ in range(ticks):
-            video_frames_rgb.append(frame_np)
+            ticks = int((duration_ms / 1000.0) * fps)
+            frame_np = np.array(img_resized)
+            for _ in range(ticks):
+                video_frames_rgb.append(frame_np)
 
     gif_path = Path("docs/demo.gif")
     mp4_path = Path("docs/demo.mp4")

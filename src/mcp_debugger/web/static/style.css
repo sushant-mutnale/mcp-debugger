@@ -293,6 +293,38 @@ tr:hover td {
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
 }
 
+/* ── Code block ──────────────────────────────────────────────── */
+.code-block {
+  background: #1a1b26;
+  border: 1px solid #414868;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.82rem;
+  color: #a9b1d6;
+  overflow-x: auto;
+}
+
+/* ── Spinner ──────────────────────────────────────────────────── */
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #414868;
+  border-top-color: #7aa2f7;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Scrollable table on mobile ──────────────────────────────── */
+.table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ── Buttons ──────────────────────────────────────────────────── */
 button {
   font-family: inherit;
