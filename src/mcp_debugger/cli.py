@@ -3300,6 +3300,51 @@ def ci(
     asyncio.run(_run())
 
 
+@app.command(name="live")
+def live(
+    session_id: int | None = typer.Argument(
+        None, help="The ID of the session to monitor (defaults to latest active/recorded session)"
+    ),
+    refresh: float = typer.Option(
+        1.0, "--refresh", "-r", help="Dashboard refresh interval in seconds"
+    ),
+    once: bool = typer.Option(
+        False, "--once", help="Render single snapshot and exit"
+    ),
+) -> None:
+    """Live terminal TUI dashboard to monitor session trajectory, agent hierarchy, and token costs."""
+    from mcp_debugger.live import LiveDashboard
+
+    async def _run() -> None:
+        target_session_id = session_id
+        if target_session_id is None:
+            db = Database()
+            await db.connect()
+            try:
+                sessions = await db.list_sessions(limit=1)
+                if not sessions:
+                    console.print("[red]Error: No sessions found to monitor.[/red]")
+                    sys.exit(1)
+                target_session_id = sessions[0]["id"]
+            finally:
+                await db.close()
+
+        dashboard = LiveDashboard(
+            session_id=target_session_id,
+            console=console,
+            refresh_rate=refresh,
+        )
+        if once:
+            await dashboard.render_once()
+        else:
+            await dashboard.run()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+
+
 def main() -> None:
     app()
 

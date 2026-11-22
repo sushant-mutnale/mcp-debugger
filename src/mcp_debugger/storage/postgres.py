@@ -273,6 +273,14 @@ class PostgresDatabase:
             rows = await conn.fetch(query, *params)
             return [dict(r) for r in rows]
 
+    async def list_sessions(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return await self.get_sessions(limit=limit, offset=offset, status=status)
+
     async def log_message(
         self,
         session_id: int,

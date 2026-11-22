@@ -1267,6 +1267,17 @@ class Database:
             logger.warning("Failed to get sessions: %s", e)
             return []
 
+    async def list_sessions(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        status_filter: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Retrieve historical debugging sessions (alias for get_sessions)."""
+        return await self.get_sessions(
+            limit=limit, offset=offset, status_filter=status_filter
+        )
+
     async def count_sessions(
         self,
         search: str | None = None,
